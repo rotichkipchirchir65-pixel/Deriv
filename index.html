@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Deriv Real-Time Trading Dashboard</title>
+  <title>Deriv Volatility Dashboard</title>
   <style>
     body { background: #222; color: #fff; font-family: sans-serif; }
-    #controls { margin: 20px auto; display: flex; gap: 12px; justify-content: center; align-items: center; }
+    #controls { margin: 20px auto; display: flex; gap: 12px; justify-content: center; align-items: center; flex-wrap: wrap;}
     #chart { width: 90vw; height: 400px; margin: 0 auto; }
     #alerts { margin: 20px auto; text-align: center; color: #ff4a4a; }
     input, select, button { padding: 6px; border-radius: 6px; border: 1px solid #888; }
@@ -16,9 +16,34 @@
   <div id="controls">
     <label>Asset:
       <select id="asset">
-        <option value="R_50">R_50 (Synthetic)</option>
-        <option value="R_100">R_100 (Synthetic)</option>
-        <option value="EURUSD">EURUSD</option>
+        <option value="R_10">Volatility 10 Index</option>
+        <option value="R_25">Volatility 25 Index</option>
+        <option value="R_50">Volatility 50 Index</option>
+        <option value="R_75">Volatility 75 Index</option>
+        <option value="R_100">Volatility 100 Index</option>
+        <option value="R_10_1HZ">Volatility 10 (1s) Index</option>
+        <option value="R_25_1HZ">Volatility 25 (1s) Index</option>
+        <option value="R_50_1HZ">Volatility 50 (1s) Index</option>
+        <option value="R_75_1HZ">Volatility 75 (1s) Index</option>
+        <option value="R_100_1HZ">Volatility 100 (1s) Index</option>
+        <option value="R_20">Volatility 20 Index</option>
+        <option value="R_30">Volatility 30 Index</option>
+        <option value="R_60">Volatility 60 Index</option>
+        <option value="R_80">Volatility 80 Index</option>
+        <option value="R_90">Volatility 90 Index</option>
+        <option value="R_20_1HZ">Volatility 20 (1s) Index</option>
+        <option value="R_30_1HZ">Volatility 30 (1s) Index</option>
+        <option value="R_60_1HZ">Volatility 60 (1s) Index</option>
+        <option value="R_80_1HZ">Volatility 80 (1s) Index</option>
+        <option value="R_90_1HZ">Volatility 90 (1s) Index</option>
+        <option value="R_100_2HZ">Volatility 100 (2s) Index</option>
+        <option value="R_50_2HZ">Volatility 50 (2s) Index</option>
+        <option value="R_75_2HZ">Volatility 75 (2s) Index</option>
+        <option value="R_25_2HZ">Volatility 25 (2s) Index</option>
+        <option value="R_10_2HZ">Volatility 10 (2s) Index</option>
+        <option value="R_250">Volatility 250 Index</option>
+        <option value="R_500">Volatility 500 Index</option>
+        <option value="R_1000">Volatility 1000 Index</option>
       </select>
     </label>
     <label>Timeframe:
@@ -31,8 +56,8 @@
     <label>Barrier:
       <input type="number" id="barrier" placeholder="Enter price" step="0.01">
     </label>
-    <button onclick="zoom('in')">Zoom In</button>
-    <button onclick="zoom('out')">Zoom Out</button>
+    <button type="button" id="zoom-in">Zoom In</button>
+    <button type="button" id="zoom-out">Zoom Out</button>
   </div>
   <div id="chart"></div>
   <div id="alerts"></div>
@@ -47,13 +72,12 @@
 
     // --- State
     let ws;
-    let asset = 'R_50';
-    let timeframe = '1m';
+    let asset = document.getElementById('asset').value;
+    let timeframe = document.getElementById('timeframe').value;
     let granularity = 60;
     let barrier = null;
     let candles = [];
 
-    // --- Utility
     function tfToGranularity(tf) {
       if (tf === '1m') return 60;
       if (tf === '5m') return 300;
@@ -61,10 +85,13 @@
       return 60;
     }
 
-    // --- WebSocket + Data
     function connect() {
-      if (ws) ws.close();
+      if (ws) {
+        ws.close();
+      }
       granularity = tfToGranularity(timeframe);
+      candles = []; // Reset candles for new asset/timeframe
+      candleSeries.setData([]);
       ws = new WebSocket('wss://ws.deriv.com/websockets/v3?app_id=1089');
       ws.onopen = () => {
         ws.send(JSON.stringify({
@@ -82,12 +109,21 @@
       ws.onmessage = msg => {
         const data = JSON.parse(msg.data);
         if (data.history && data.history.candles) {
-          candles = data.history.candles;
+          candles = data.history.candles.map(c => ({
+            epoch: c.epoch,
+            open: c.open,
+            high: c.high,
+            low: c.low,
+            close: c.close
+          }));
           renderCandles();
         }
         if (data.tick) {
           handleTick(data.tick);
         }
+      };
+      ws.onerror = () => {
+        document.getElementById('alerts').innerText = "Error connecting to Deriv WebSocket. Try a different asset or reload.";
       };
     }
 
@@ -100,26 +136,40 @@
         close: c.close
       }));
       candleSeries.setData(formatted);
+      runSignals();
     }
 
     function handleTick(tick) {
       const latest = {
-        time: tick.epoch,
+        epoch: tick.epoch,
         open: tick.quote,
         high: tick.quote,
         low: tick.quote,
         close: tick.quote
       };
-      candles.push({ epoch: tick.epoch, open: tick.quote, high: tick.quote, low: tick.quote, close: tick.quote });
-      if (candles.length > 100) candles.shift();
-      candleSeries.update(latest);
+      if (candles.length && candles[candles.length - 1].epoch === latest.epoch) {
+        // Update last candle
+        candles[candles.length - 1] = latest;
+      } else {
+        candles.push(latest);
+        if (candles.length > 100) candles.shift();
+      }
+      candleSeries.update({
+        time: latest.epoch,
+        open: latest.open,
+        high: latest.high,
+        low: latest.low,
+        close: latest.close
+      });
       runSignals();
     }
 
-    // --- Signal logic
     function runSignals() {
       const b = parseFloat(barrier);
-      if (!b) { document.getElementById('alerts').innerHTML = ''; return; }
+      if (!b) {
+        document.getElementById('alerts').innerHTML = '';
+        return;
+      }
       let alerts = [];
       // Buy/sell cross
       for (let i = 1; i < candles.length; i++) {
@@ -134,31 +184,33 @@
         const prev = candles[candles.length-2];
         const velocity = (last.close - prev.close) / (last.epoch - prev.epoch);
         const timeToBarrier = (b - last.close) / velocity;
-        if (timeToBarrier > 0 && timeToBarrier <= 3) {
+        if (velocity !== 0 && timeToBarrier > 0 && timeToBarrier <= 3) {
           alerts.push(`Predictive: Cross in ${timeToBarrier.toFixed(1)}s`);
         }
       }
       document.getElementById('alerts').innerHTML = alerts.join('<br>');
     }
 
-    // --- Controls
     document.getElementById('asset').onchange = e => {
-      asset = e.target.value; connect();
+      asset = e.target.value;
+      connect();
     };
     document.getElementById('timeframe').onchange = e => {
-      timeframe = e.target.value; connect();
+      timeframe = e.target.value;
+      connect();
     };
     document.getElementById('barrier').oninput = e => {
-      barrier = e.target.value; runSignals();
+      barrier = e.target.value;
+      runSignals();
+    };
+    document.getElementById('zoom-in').onclick = () => chart.timeScale().zoomIn();
+    document.getElementById('zoom-out').onclick = () => chart.timeScale().zoomOut();
+
+    window.onresize = () => {
+      chart.applyOptions({ width: document.getElementById('chart').offsetWidth });
     };
 
-    function zoom(dir) {
-      const scale = chart.timeScale();
-      if (dir === 'in') scale.zoomIn();
-      else scale.zoomOut();
-    }
-
-    // --- Init
+    // Start with initial asset/timeframe
     connect();
   </script>
 </body>
