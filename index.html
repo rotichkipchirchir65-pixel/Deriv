@@ -2,32 +2,164 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Deriv Real-Time Trading Assistant</title>
-  <link rel="stylesheet" href="theme.css">
+  <title>Deriv Real-Time Trading Dashboard</title>
+  <style>
+    body { background: #222; color: #fff; font-family: sans-serif; }
+    #controls { margin: 20px auto; display: flex; gap: 12px; justify-content: center; align-items: center; }
+    #chart { width: 90vw; height: 400px; margin: 0 auto; }
+    #alerts { margin: 20px auto; text-align: center; color: #ff4a4a; }
+    input, select, button { padding: 6px; border-radius: 6px; border: 1px solid #888; }
+  </style>
   <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
-  <div class="robot-logo neon">🤖 Deriv Matrix Assistant</div>
-  <canvas id="matrix-canvas" class="matrix-rain"></canvas>
-  <div id="controls" class="neon">
-    <select id="asset-switch">
-      <option value="R_50">R_50 (Synthetic)</option>
-      <option value="EURUSD">EURUSD</option>
-      <option value="R_100">R_100 (Synthetic)</option>
-      <!-- Add more assets -->
-    </select>
-    <select id="timeframe">
-      <option value="1m">1 Min</option>
-      <option value="5m">5 Min</option>
-      <option value="1h">1 Hour</option>
-    </select>
-    <input id="barrier" type="number" placeholder="Barrier Price" step="0.01">
-    <button onclick="zoomChart('in')">Zoom In</button>
-    <button onclick="zoomChart('out')">Zoom Out</button>
+  <div id="controls">
+    <label>Asset:
+      <select id="asset">
+        <option value="R_50">R_50 (Synthetic)</option>
+        <option value="R_100">R_100 (Synthetic)</option>
+        <option value="EURUSD">EURUSD</option>
+      </select>
+    </label>
+    <label>Timeframe:
+      <select id="timeframe">
+        <option value="1m">1 Min</option>
+        <option value="5m">5 Min</option>
+        <option value="1h">1 Hour</option>
+      </select>
+    </label>
+    <label>Barrier:
+      <input type="number" id="barrier" placeholder="Enter price" step="0.01">
+    </label>
+    <button onclick="zoom('in')">Zoom In</button>
+    <button onclick="zoom('out')">Zoom Out</button>
   </div>
-  <div id="chart" style="height:400px;width:100%;"></div>
-  <div id="signal-alerts" class="neon"></div>
-  <script src="main.js"></script>
-  <script src="matrix.js"></script>
+  <div id="chart"></div>
+  <div id="alerts"></div>
+  <script>
+    // --- Chart setup
+    const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+      width: document.getElementById('chart').offsetWidth,
+      height: 400,
+      layout: { background: { color: "#222" }, textColor: "#fff" }
+    });
+    const candleSeries = chart.addCandlestickSeries();
+
+    // --- State
+    let ws;
+    let asset = 'R_50';
+    let timeframe = '1m';
+    let granularity = 60;
+    let barrier = null;
+    let candles = [];
+
+    // --- Utility
+    function tfToGranularity(tf) {
+      if (tf === '1m') return 60;
+      if (tf === '5m') return 300;
+      if (tf === '1h') return 3600;
+      return 60;
+    }
+
+    // --- WebSocket + Data
+    function connect() {
+      if (ws) ws.close();
+      granularity = tfToGranularity(timeframe);
+      ws = new WebSocket('wss://ws.deriv.com/websockets/v3?app_id=1089');
+      ws.onopen = () => {
+        ws.send(JSON.stringify({
+          ticks_history: asset,
+          count: 100,
+          end: 'latest',
+          style: 'candles',
+          granularity: granularity
+        }));
+        ws.send(JSON.stringify({
+          ticks: asset,
+          subscribe: 1
+        }));
+      };
+      ws.onmessage = msg => {
+        const data = JSON.parse(msg.data);
+        if (data.history && data.history.candles) {
+          candles = data.history.candles;
+          renderCandles();
+        }
+        if (data.tick) {
+          handleTick(data.tick);
+        }
+      };
+    }
+
+    function renderCandles() {
+      const formatted = candles.map(c => ({
+        time: c.epoch,
+        open: c.open,
+        high: c.high,
+        low: c.low,
+        close: c.close
+      }));
+      candleSeries.setData(formatted);
+    }
+
+    function handleTick(tick) {
+      const latest = {
+        time: tick.epoch,
+        open: tick.quote,
+        high: tick.quote,
+        low: tick.quote,
+        close: tick.quote
+      };
+      candles.push({ epoch: tick.epoch, open: tick.quote, high: tick.quote, low: tick.quote, close: tick.quote });
+      if (candles.length > 100) candles.shift();
+      candleSeries.update(latest);
+      runSignals();
+    }
+
+    // --- Signal logic
+    function runSignals() {
+      const b = parseFloat(barrier);
+      if (!b) { document.getElementById('alerts').innerHTML = ''; return; }
+      let alerts = [];
+      // Buy/sell cross
+      for (let i = 1; i < candles.length; i++) {
+        if (candles[i-1].close < b && candles[i].close > b)
+          alerts.push(`BUY at ${candles[i].close} (${new Date(candles[i].epoch*1000).toLocaleTimeString()})`);
+        if (candles[i-1].close > b && candles[i].close < b)
+          alerts.push(`SELL at ${candles[i].close} (${new Date(candles[i].epoch*1000).toLocaleTimeString()})`);
+      }
+      // Predictive: estimate if crossing in next 3 seconds
+      if (candles.length >= 2) {
+        const last = candles[candles.length-1];
+        const prev = candles[candles.length-2];
+        const velocity = (last.close - prev.close) / (last.epoch - prev.epoch);
+        const timeToBarrier = (b - last.close) / velocity;
+        if (timeToBarrier > 0 && timeToBarrier <= 3) {
+          alerts.push(`Predictive: Cross in ${timeToBarrier.toFixed(1)}s`);
+        }
+      }
+      document.getElementById('alerts').innerHTML = alerts.join('<br>');
+    }
+
+    // --- Controls
+    document.getElementById('asset').onchange = e => {
+      asset = e.target.value; connect();
+    };
+    document.getElementById('timeframe').onchange = e => {
+      timeframe = e.target.value; connect();
+    };
+    document.getElementById('barrier').oninput = e => {
+      barrier = e.target.value; runSignals();
+    };
+
+    function zoom(dir) {
+      const scale = chart.timeScale();
+      if (dir === 'in') scale.zoomIn();
+      else scale.zoomOut();
+    }
+
+    // --- Init
+    connect();
+  </script>
 </body>
 </html>
