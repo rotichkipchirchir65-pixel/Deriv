@@ -3,64 +3,67 @@
 <head>
   <meta charset="UTF-8" />
   <title>SPARK-X MACD Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     body {
       background-color: #0a0a0a;
       color: #00ffe0;
-      font-family: 'Orbitron', sans-serif;
+      font-family: 'Orbitron', system-ui, -apple-system, Segoe UI, Roboto, Arial;
       margin: 0;
       padding: 0;
     }
     header {
       background: linear-gradient(to right, #ff0040, #ff9900);
-      padding: 20px;
+      padding: 16px 20px;
       text-align: center;
-      font-size: 2em;
+      font-size: 1.8em;
       color: #fff;
-      text-shadow: 0 0 10px #ff0040;
-    }
-    #chart-container {
-      width: 90%;
-      margin: 30px auto;
-      background: #111;
-      border: 2px solid #00ffe0;
-      padding: 20px;
-      border-radius: 10px;
+      text-shadow: 0 0 8px #ff0040;
+      letter-spacing: 1px;
     }
     .controls {
       display: flex;
       justify-content: center;
-      gap: 20px;
-      margin: 20px;
+      gap: 16px;
+      margin: 18px;
       flex-wrap: wrap;
+      align-items: center;
     }
-    button {
-      background-color: #ff0040;
-      border: none;
-      padding: 15px 30px;
-      font-size: 1em;
-      color: #fff;
-      border-radius: 8px;
-      box-shadow: 0 0 10px #ff0040;
-      cursor: pointer;
-      transition: transform 0.2s;
-    }
-    button:hover {
-      transform: scale(1.1);
-    }
-    select {
+    select, button {
       background-color: #111;
       color: #00ffe0;
       border: 2px solid #00ffe0;
-      padding: 10px;
+      padding: 10px 14px;
       font-size: 1em;
       border-radius: 8px;
     }
-    #lossShield {
-      margin-top: 20px;
-      text-align: center;
+    button {
+      background-color: #ff0040;
+      color: #fff;
+      border: none;
+      box-shadow: 0 0 10px #ff0040;
+      cursor: pointer;
+      transition: transform 0.15s ease;
     }
+    button:hover { transform: scale(1.07); }
+    #chart-container {
+      width: 92%;
+      max-width: 1100px;
+      margin: 22px auto;
+      background: #111;
+      border: 2px solid #00ffe0;
+      padding: 16px;
+      border-radius: 10px;
+    }
+    #lossShield {
+      margin: 12px auto 28px;
+      text-align: center;
+      color: #fff;
+    }
+    #lossShield input { transform: scale(1.2); margin-right: 8px; }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.1.0"></script>
 </head>
 <body>
   <header>ELIAKIM-N SPARK-X • MACD Dashboard</header>
@@ -70,7 +73,7 @@
       <option value="R_10">Volatility 10 Index</option>
       <option value="R_25">Volatility 25 Index</option>
       <option value="R_50">Volatility 50 Index</option>
-      <option value="R_75">Volatility 75 Index</option>
+      <option value="R_75" selected>Volatility 75 Index</option>
       <option value="R_100">Volatility 100 Index</option>
       <option value="R_10_1HZ">Volatility 10 (1s)</option>
       <option value="R_25_1HZ">Volatility 25 (1s)</option>
@@ -80,7 +83,7 @@
     </select>
 
     <select id="growthRateSelector">
-      <option value="1">Growth Rate: 1%</option>
+      <option value="1" selected>Growth Rate: 1%</option>
       <option value="2">Growth Rate: 2%</option>
       <option value="3">Growth Rate: 3%</option>
       <option value="4">Growth Rate: 4%</option>
@@ -93,7 +96,7 @@
   </div>
 
   <div id="chart-container">
-    <canvas id="macdChart"></canvas>
+    <canvas id="macdChart" height="120"></canvas>
   </div>
 
   <div id="lossShield">
@@ -103,49 +106,82 @@
     </label>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script>
+    // App credentials
     const app_id = 1089;
     const api_token = "lKcYGLpmaAMgUkH"; // Your Deriv token
+
+    // State
     let ws;
     let tickPrices = [];
-    const maxTicks = 100;
+    const maxTicks = 300;
     let barrier = null;
     let growthRate = 1;
     let selectedSymbol = "R_75";
 
+    // Chart setup
     const ctx = document.getElementById('macdChart').getContext('2d');
     const macdChart = new Chart(ctx, {
       type: 'line',
       data: {
         labels: [],
         datasets: [
-          { label: 'MACD', data: [], borderColor: '#00ffe0', borderWidth: 2 },
-          { label: 'Signal', data: [], borderColor: '#ff0040', borderWidth: 2 },
-          { label: 'Histogram', data: [], borderColor: '#ff9900', borderWidth: 2 }
+          {
+            label: 'MACD',
+            data: [],
+            borderColor: '#00ffe0',
+            backgroundColor: 'rgba(0,255,224,0.08)',
+            borderWidth: 2,
+            tension: 0.25
+          },
+          {
+            label: 'Signal',
+            data: [],
+            borderColor: '#ff0040',
+            backgroundColor: 'rgba(255,0,64,0.08)',
+            borderWidth: 2,
+            tension: 0.25
+          },
+          {
+            label: 'Histogram',
+            data: [],
+            borderColor: '#ff9900',
+            backgroundColor: 'rgba(255,153,0,0.12)',
+            borderWidth: 2,
+            tension: 0.25
+          }
         ]
       },
       options: {
         responsive: true,
+        maintainAspectRatio: false,
         plugins: {
-          legend: { labels: { color: '#fff' } }
+          legend: { labels: { color: '#fff' } },
+          annotation: {}
         },
         scales: {
-          x: { ticks: { color: '#fff' } },
-          y: { ticks: { color: '#fff' } }
+          x: {
+            ticks: { color: '#fff' },
+            grid: { color: 'rgba(255,255,255,0.08)' }
+          },
+          y: {
+            ticks: { color: '#fff' },
+            grid: { color: 'rgba(255,255,255,0.08)' }
+          }
         }
       }
     });
 
+    // Controls
     function applySettings() {
       selectedSymbol = document.getElementById('volatilitySelector').value;
       growthRate = parseFloat(document.getElementById('growthRateSelector').value);
-      alert(`⚙️ Settings applied:\nIndex: ${selectedSymbol}\nGrowth Rate: ${growthRate}%`);
       tickPrices = [];
       barrier = null;
       connectToDeriv();
     }
 
+    // Deriv WebSocket
     function connectToDeriv() {
       if (ws) ws.close();
       ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${app_id}`);
@@ -158,7 +194,6 @@
         const data = JSON.parse(msg.data);
 
         if (data.msg_type === "authorize") {
-          console.log("✅ Authorized");
           ws.send(JSON.stringify({ ticks: selectedSymbol, subscribe: 1 }));
         }
 
@@ -167,22 +202,24 @@
           tickPrices.push(price);
           if (tickPrices.length > maxTicks) tickPrices.shift();
 
-          if (!barrier) {
-            barrier = price * (1 + growthRate / 100);
-            console.log(`📈 Barrier set at ${barrier.toFixed(5)}`);
-          }
+          // Set barrier from first tick using growth rate
+          if (!barrier) barrier = price * (1 + growthRate / 100);
 
           checkBarrierRisk(price);
           updateMACDChart();
         }
 
         if (data.error) {
-          console.error("❌ Error:", data.error.message);
+          console.error("Error:", data.error.message);
           alert("Authorization failed or invalid symbol.");
         }
       };
+
+      ws.onerror = (e) => console.error("WS error", e);
+      ws.onclose = () => console.log("WS closed");
     }
 
+    // EMA and MACD
     function calculateEMA(period, prices) {
       const k = 2 / (period + 1);
       let ema = prices[0];
@@ -194,36 +231,68 @@
       return result;
     }
 
+    // Chart update with BUY/SELL markers (MACD crossovers)
     function updateMACDChart() {
       if (tickPrices.length < 26) return;
+
       const ema12 = calculateEMA(12, tickPrices);
       const ema26 = calculateEMA(26, tickPrices);
       const macd = ema12.map((val, i) => val - ema26[i]);
       const signal = calculateEMA(9, macd);
       const histogram = macd.map((val, i) => val - signal[i]);
 
-      macdChart.data.labels = tickPrices.map((_, i) => `T${i}`);
+      const labels = tickPrices.map((_, i) => `T${i}`);
+
+      // Detect crossovers for markers
+      const buySellMarkers = [];
+      for (let i = 1; i < macd.length && i < signal.length; i++) {
+        const prevMACD = macd[i - 1], prevSignal = signal[i - 1];
+        const currMACD = macd[i], currSignal = signal[i];
+
+        if (prevMACD < prevSignal && currMACD > currSignal) {
+          buySellMarkers.push({ x: i, y: currMACD, label: 'BUY' });
+        } else if (prevMACD > prevSignal && currMACD < currSignal) {
+          buySellMarkers.push({ x: i, y: currMACD, label: 'SELL' });
+        }
+      }
+
+      macdChart.data.labels = labels;
       macdChart.data.datasets[0].data = macd;
       macdChart.data.datasets[1].data = signal;
       macdChart.data.datasets[2].data = histogram;
+
+      // Apply annotations (BUY/SELL tags)
+      macdChart.options.plugins.annotation = {
+        annotations: buySellMarkers.map(m => ({
+          type: 'label',
+          xValue: labels[m.x],
+          yValue: m.y,
+          backgroundColor: m.label === 'BUY' ? '#00ff00' : '#ff0040',
+          content: m.label,
+          color: '#000',
+          font: { size: 13, weight: 'bold' },
+          borderRadius: 4,
+          padding: 6
+        }))
+      };
+
       macdChart.update();
     }
 
+    // Barrier proximity logic and Loss Shield
     function checkBarrierRisk(currentPrice) {
       if (!barrier) return;
       const distance = barrier - currentPrice;
-      const threshold = 5;
+      const threshold = Math.max(0.0005 * currentPrice, 5); // adaptive safety
 
-      if (distance <= threshold && distance > 0) {
-        console.warn(`🚨 Near barrier! Distance: ${distance.toFixed(5)}`);
-        if (document.getElementById('shieldToggle').checked) {
-          document.querySelectorAll('button').forEach(btn => {
-            if (btn.innerText.includes('Buy') || btn.innerText.includes('Sell')) {
-              btn.disabled = true;
-              btn.style.opacity = 0.5;
-            }
-          });
-        }
+      const nearBarrier = distance <= threshold && distance > 0;
+      if (nearBarrier && document.getElementById('shieldToggle').checked) {
+        document.querySelectorAll('button').forEach(btn => {
+          if (btn.innerText.includes('Buy') || btn.innerText.includes('Sell')) {
+            btn.disabled = true;
+            btn.style.opacity = 0.5;
+          }
+        });
       } else {
         document.querySelectorAll('button').forEach(btn => {
           if (btn.innerText.includes('Buy') || btn.innerText.includes('Sell')) {
@@ -234,6 +303,7 @@
       }
     }
 
+    // Manual trades (UI-only)
     function manualTrade(type) {
       const shield = document.getElementById('shieldToggle').checked;
       if (shield) {
@@ -241,11 +311,10 @@
         return;
       }
       alert(`🔥 ${type.toUpperCase()} executed manually.`);
-      // Optional: log to vault or trigger external webhook here
     }
 
-    // Auto-connect on page load
-    window.onload = () => {
-      applySettings();
-    };
+    // Initialize
+    window.onload = () => applySettings();
   </script>
+</body>
+  </html>
