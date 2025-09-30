@@ -13,7 +13,7 @@
     h1 {
       text-shadow: 0 0 10px #00ffcc;
     }
-    textarea, input {
+    input, button {
       width: 100%;
       background-color: #111;
       color: #0f0;
@@ -24,8 +24,6 @@
     button {
       background-color: #00ffcc;
       color: black;
-      padding: 10px;
-      margin-top: 10px;
       font-weight: bold;
       cursor: pointer;
     }
@@ -40,30 +38,39 @@
 </head>
 <body>
   <h1>ELIAKIM-N TRACE-X</h1>
-  <p>Paste Gmail header or IP address below:</p>
-  <textarea id="input" rows="10" placeholder="Paste Gmail header or IP here..."></textarea>
+  <p>Enter phone number or email address:</p>
+  <input type="text" id="query" placeholder="e.g. eliakim@gmail.com or +2547xxxxxxx">
   <button onclick="trace()">Trace</button>
   <div id="output"></div>
 
   <script>
-    function trace() {
-      const input = document.getElementById('input').value;
+    async function trace() {
+      const query = document.getElementById('query').value.trim();
       const output = document.getElementById('output');
-      let ipMatch = input.match(/Received:\s.*?\[(\d{1,3}(?:\.\d{1,3}){3})\]/);
-      if (!ipMatch) ipMatch = input.match(/(\d{1,3}(?:\.\d{1,3}){3})/);
-      if (ipMatch) {
-        const ip = ipMatch[1];
-        output.innerHTML = `🔍 IP Found: ${ip}\nFetching location...`;
-        fetch(`https://ipapi.co/${ip}/json/`)
-          .then(res => res.json())
-          .then(data => {
-            output.innerHTML += `\n🌍 Location: ${data.city}, ${data.region}, ${data.country_name}\n📡 ISP: ${data.org}\n🕒 Timezone: ${data.timezone}`;
-          })
-          .catch(err => {
-            output.innerHTML += `\n⚠️ Error fetching location: ${err}`;
+      output.innerHTML = `🔍 Searching for: ${query}\n`;
+
+      // Basic email breach check via HaveIBeenPwned (public API)
+      if (query.includes('@')) {
+        try {
+          const res = await fetch(`https://haveibeenpwned.com/api/v3/breachedaccount/${encodeURIComponent(query)}`, {
+            headers: { 'hibp-api-key': 'YOUR_API_KEY' } // Replace with your actual key
           });
+          if (res.status === 200) {
+            const breaches = await res.json();
+            output.innerHTML += `💥 Breaches found:\n`;
+            breaches.forEach(b => {
+              output.innerHTML += `- ${b.Name} (${b.BreachDate})\n`;
+            });
+          } else if (res.status === 404) {
+            output.innerHTML += `✅ No known breaches.\n`;
+          } else {
+            output.innerHTML += `⚠️ Error checking breaches: ${res.status}\n`;
+          }
+        } catch (err) {
+          output.innerHTML += `⚠️ API error: ${err.message}\n`;
+        }
       } else {
-        output.innerHTML = "❌ No valid IP found in input.";
+        output.innerHTML += `📱 Phone tracing not supported yet. Add WhatsApp sync next?\n`;
       }
     }
   </script>
