@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Volatility Barrier Prediction Dashboard</title>
+  <title>MACD & Barrier Cross Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     body { background-color: #0a0a0a; color: #00ffe0; font-family: 'Orbitron', sans-serif; margin: 0; padding: 0;}
@@ -13,12 +13,15 @@
     select { background-color: #111; color: #00ffe0; border: 2px solid #00ffe0; padding: 8px; font-size: 1em; border-radius: 8px;}
     #signalLog { width: 98vw; max-width: 1200px; margin: 10px auto; padding: 8px; background: #111; border: 2px solid #00ffe0; border-radius: 10px; color: #00ffe0; font-family: 'Orbitron', sans-serif;}
     #signalLog h3 { margin: 0 0 6px; text-align: center;}
-    #signalList { list-style: none; padding-left: 10px; max-height:120px; overflow-y:auto;}
+    #signalList { list-style: none; padding-left: 10px; max-height:140px; overflow-y:auto;}
     #signalList li { margin-bottom: 5px; border-bottom: 1px solid #00ffe0; font-size:1.05em; }
     .alert { font-weight: bold; color: #ff0; background: #222; padding: 2px 10px; border-radius: 4px;}
+    .macd-up { color: #0f0; }
+    .macd-down { color: #ff0040; }
+    .breach { color: #fff; background: #ff0040; }
     .safe { color: #0f0; }
     .risk { color: #ff9900; }
-    .predicted { color: #00aaff; }
+    .prediction { color: #00aaff; }
     @media (max-width: 800px) {
       #chart-container, #signalLog { width: 99vw; max-width: 99vw; }
       .controls { flex-direction: column; align-items:center; }
@@ -27,7 +30,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-  <header>Volatility Barrier Prediction Dashboard</header>
+  <header>MACD & Barrier Cross Dashboard</header>
   <div class="controls">
     <select id="volatilitySelector">
       <option value="R_10">Volatility 10 Index</option>
@@ -60,11 +63,11 @@
     <ul id="signalList"></ul>
   </div>
 
-  <audio id="entrySound" src="https://assets.mixkit.co/sfx/preview/mixkit-positive-interface-beep-221.mp3"></audio>
-  <audio id="lossSound" src="https://assets.mixkit.co/sfx/preview/mixkit-tech-breakdown-2478.mp3"></audio>
+  <audio id="macdUpSound" src="https://assets.mixkit.co/sfx/preview/mixkit-positive-interface-beep-221.mp3"></audio>
+  <audio id="macdDownSound" src="https://assets.mixkit.co/sfx/preview/mixkit-warning-notification-93.mp3"></audio>
+  <audio id="breachSound" src="https://assets.mixkit.co/sfx/preview/mixkit-tech-breakdown-2478.mp3"></audio>
+  <audio id="riskSound" src="https://assets.mixkit.co/sfx/preview/mixkit-interface-hint-notification-911.mp3"></audio>
   <audio id="safeSound" src="https://assets.mixkit.co/sfx/preview/mixkit-positive-notification-951.mp3"></audio>
-  <audio id="riskSound" src="https://assets.mixkit.co/sfx/preview/mixkit-warning-notification-93.mp3"></audio>
-  <audio id="earlySound" src="https://assets.mixkit.co/sfx/preview/mixkit-tick-tock-clock-timer-1045.mp3"></audio>
 
   <script>
     const app_id = 1089;
@@ -76,20 +79,22 @@
     let barrier = null;
     let growthRate = 1;
     let selectedSymbol = "R_75";
-    let lastState = null; // 'SAFE', 'RISK', 'LOSS', 'ENTRY'
-    let lastEarlyAlertIdx = -1000;
-    let lastPredictedCrossIdx = -1000;
+    let lastBreach = false;
+    let lastMacdCross = null; // 'up', 'down'
+    let lastState = null; // 'SAFE', 'RISK', 'LOSS'
+    let macdArr = [], signalArr = [];
 
-    // Chart.js setup: three lines (price, barrier, prediction)
+    // Chart.js setup: price, barrier, MACD, Signal (all lines, no dots)
     const ctx = document.getElementById('priceChart').getContext('2d');
     let priceChart = new Chart(ctx, {
       type: 'line',
       data: {
         labels: [],
         datasets: [
-          { label: 'Price', data: [], borderColor: '#00ffe0', borderWidth: 2, tension: 0.25, pointRadius: 0, pointHoverRadius: 0 },
-          { label: 'Barrier', data: [], borderColor: '#ff0040', borderWidth: 2, borderDash: [8, 6], tension: 0, pointRadius: 0, pointHoverRadius: 0 },
-          { label: 'Prediction', data: [], borderColor: '#00aaff', borderWidth: 2, borderDash: [2,7], tension: 0, pointRadius: 0, pointHoverRadius: 0 }
+          { label: 'Price', data: [], borderColor: '#00ffe0', borderWidth: 2, tension: 0.25, pointRadius: 0, pointHoverRadius: 0, yAxisID: 'y' },
+          { label: 'Barrier', data: [], borderColor: '#ff0040', borderWidth: 2, borderDash: [8, 6], tension: 0, pointRadius: 0, pointHoverRadius: 0, yAxisID: 'y' },
+          { label: 'MACD', data: [], borderColor: '#0f0', borderWidth: 2, tension: 0.25, pointRadius: 0, pointHoverRadius: 0, yAxisID: 'macd' },
+          { label: 'Signal', data: [], borderColor: '#ff0', borderWidth: 2, tension: 0.25, pointRadius: 0, pointHoverRadius: 0, yAxisID: 'macd' }
         ]
       },
       options: {
@@ -97,8 +102,12 @@
         maintainAspectRatio: false,
         plugins: { legend: { labels: { color: '#fff' } } },
         scales: {
-          x: { display: false },
-          y: { ticks: { color: '#fff' }, grid: { color: 'rgba(255,255,255,0.08)' } }
+          y: { position:'left', title:{display:true, text:'Price/Barrier', color:'#00ffe0'},
+            ticks: { color: '#fff' }, grid: { color: 'rgba(255,255,255,0.08)' }
+          },
+          macd: { position:'right', title:{display:true, text:'MACD', color:'#0f0'},
+            ticks: { color: '#0f0' }, grid: { display:false }, min:-5, max:5
+          }
         }
       }
     });
@@ -108,7 +117,7 @@
       logItem.textContent = message;
       if (type) logItem.className = type;
       const list = document.getElementById('signalList');
-      if (list.childNodes.length > 80) list.removeChild(list.lastChild);
+      if (list.childNodes.length > 100) list.removeChild(list.lastChild);
       list.prepend(logItem);
     }
 
@@ -118,9 +127,11 @@
       tickPrices = [];
       tickTimes = [];
       barrier = null;
+      lastBreach = false;
+      lastMacdCross = null;
       lastState = null;
-      lastEarlyAlertIdx = -1000;
-      lastPredictedCrossIdx = -1000;
+      macdArr = [];
+      signalArr = [];
       priceChart.data.labels = [];
       priceChart.data.datasets.forEach(ds=>ds.data=[]);
       priceChart.update();
@@ -149,57 +160,66 @@
       };
     }
 
+    function calculateEMA(period, prices) {
+      if (prices.length < 1) return [];
+      const k = 2 / (period + 1);
+      let ema = prices[0];
+      const result = [ema];
+      for (let i = 1; i < prices.length; i++) {
+        ema = prices[i] * k + ema * (1 - k);
+        result.push(ema);
+      }
+      return result;
+    }
+
     function updatePriceChart() {
       priceChart.data.labels = tickTimes.map(t=>new Date(t));
       priceChart.data.datasets[0].data = tickPrices;
       priceChart.data.datasets[1].data = Array(tickPrices.length).fill(barrier);
 
-      // --- Prediction line (project 4 ticks into the future)
-      let predictionArr = [];
-      if (tickPrices.length >= 5) {
-        let idx0 = tickPrices.length-5;
-        let idx1 = tickPrices.length-1;
-        let v = (tickPrices[idx1] - tickPrices[idx0]) / 4.0; // ticks are 1s apart
-        let predicted = [];
-        for (let i=0; i<4; ++i) {
-          predicted.push(tickPrices[idx1] + v*(i+1));
-        }
-        predictionArr = tickPrices.slice();
-        for (let i=1; i<=4; ++i)
-          predictionArr.push(tickPrices[idx1] + v*i);
-        let labels = priceChart.data.labels.slice();
-        let lastLabel = labels[labels.length-1] || new Date();
-        for (let i=1; i<=4; ++i) {
-          labels.push(new Date(+lastLabel + i*1000));
-        }
-        priceChart.data.labels = labels;
-        priceChart.data.datasets[2].data = predictionArr;
+      // MACD calculation (standard 12,26,9)
+      if (tickPrices.length >= 26) {
+        const emaFast = calculateEMA(12, tickPrices);
+        const emaSlow = calculateEMA(26, tickPrices);
+        const macd = [];
+        for (let i = 0; i < Math.min(emaFast.length, emaSlow.length); i++)
+          macd.push(emaFast[i] - emaSlow[i]);
+        const signal = calculateEMA(9, macd);
+
+        macdArr = macd;
+        signalArr = signal;
+
+        // Pad MACD/Signal data to align with price data for the chart
+        const pad = tickPrices.length - macd.length;
+        const macdPlot = Array(pad).fill(null).concat(macd);
+        const signalPlot = Array(pad + (macd.length - signal.length)).fill(null).concat(signal);
+
+        priceChart.data.datasets[2].data = macdPlot;
+        priceChart.data.datasets[3].data = signalPlot;
+
+        priceChart.update();
+
+        analyzeSignals(macd, signal, tickPrices[tickPrices.length-1]);
       } else {
         priceChart.data.datasets[2].data = [];
+        priceChart.data.datasets[3].data = [];
+        priceChart.update();
       }
-      priceChart.update();
 
-      // Signal logic
+      // Barrier crossing logic
       if (tickPrices.length < 2) return;
       const curr = tickPrices[tickPrices.length-1];
       const prev = tickPrices[tickPrices.length-2];
 
-      // Entry (first tick)
-      if (lastState === null) {
-        logSignal(`✅ ENTRY: Trading started at ${curr.toFixed(5)}`, "alert");
-        document.getElementById("entrySound").play();
-        lastState = "ENTRY";
-      }
-
-      // Loss: price crosses barrier
       if ((prev < barrier && curr >= barrier) || (prev > barrier && curr <= barrier)) {
-        if (lastState !== "LOSS") {
-          document.getElementById("lossSound").play();
-          logSignal(`🟥 LOSS! Price crossed the barrier at ${curr.toFixed(5)}`, "alert");
-          lastState = "LOSS";
+        if (!lastBreach) {
+          document.getElementById("breachSound").play();
+          logSignal(`🟥 LOSS! Price crossed the barrier at ${curr.toFixed(5)}`, "breach");
+          lastBreach = true;
         }
       } else {
-        // Safe/Risk time
+        lastBreach = false;
+        // Safe/Risk logic
         const distance = Math.abs(barrier - curr);
         if (distance < curr * 0.005) {
           if (lastState !== "RISK") {
@@ -215,26 +235,30 @@
           }
         }
       }
+    }
 
-      // Early warning: predict 4 ticks (4 seconds) ahead
-      if (tickPrices.length >= 5) {
-        let idx0 = tickPrices.length-5;
-        let idx1 = tickPrices.length-1;
-        let v = (tickPrices[idx1] - tickPrices[idx0]) / 4.0;
-        let predPrice = tickPrices[idx1] + v*4;
-        const currIdx = tickPrices.length;
-        const willBreach = 
-          (v > 0 && curr < barrier && predPrice >= barrier) ||
-          (v < 0 && curr > barrier && predPrice <= barrier);
-        if (willBreach && currIdx - lastEarlyAlertIdx > 10) {
-          document.getElementById("earlySound").play();
-          logSignal(`⏰ EARLY ALERT: Price may cross barrier in ~4s!`, "alert");
-          lastEarlyAlertIdx = currIdx;
-        }
-        // Visual predicted crossing
-        if (willBreach && currIdx - lastPredictedCrossIdx > 10) {
-          logSignal(`🔮 TRACKING: Prediction shows a crossing soon!`, "predicted");
-          lastPredictedCrossIdx = currIdx;
+    function analyzeSignals(macd, signal, price) {
+      const len = macd.length;
+      if (len < 2 || signal.length < 2) return;
+      const prevMACD = macd[len-2], currMACD = macd[len-1];
+      const prevSignal = signal[signal.length-2], currSignal = signal[signal.length-1];
+      const prevDiff = prevMACD - prevSignal;
+      const currDiff = currMACD - currSignal;
+
+      // Upward cross (bullish)
+      if (prevDiff < 0 && currDiff > 0 && lastMacdCross !== 'up') {
+        document.getElementById("macdUpSound").play();
+        logSignal(`🔼 MACD Crossed ABOVE Signal (bullish): MACD upward cross often means price may move UP and AWAY from barrier.`, "macd-up");
+        lastMacdCross = 'up';
+      }
+      // Downward cross (bearish)
+      else if (prevDiff > 0 && currDiff < 0 && lastMacdCross !== 'down') {
+        document.getElementById("macdDownSound").play();
+        logSignal(`🔽 MACD Crossed BELOW Signal (bearish): MACD downward cross often means price may FALL and is at RISK of crossing the barrier.`, "macd-down");
+        lastMacdCross = 'down';
+        // If price is near barrier, warn
+        if (Math.abs(barrier - price) < price * 0.01) {
+          logSignal(`🚨 WARNING: MACD bearish cross & price near barrier. Barrier breach is likely!`, "alert");
         }
       }
     }
