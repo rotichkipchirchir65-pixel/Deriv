@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>MACD & Barrier Cross Dashboard</title>
+  <title>Barrier Entry/Exit Predictor</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     body { background-color: #0a0a0a; color: #00ffe0; font-family: 'Orbitron', sans-serif; margin: 0; padding: 0;}
-    header { background: linear-gradient(to right, #ff0040, #ff9900); padding: 20px; text-align: center; font-size: 2em; color: #fff; text-shadow: 0 0 10px #ff0040;}
-    #chart-container { width: 100vw; max-width: 100vw; height: 450px; margin: 10px auto 0 auto; background: #111; border: 2px solid #00ffe0; padding: 0px; border-radius: 10px;}
+    header { background: linear-gradient(to right, #ff0040, #ff9900); padding: 20px; text-align: center; font-size: 2em; color: #fff;}
+    #chart-container { width: 100vw; max-width: 100vw; height: 430px; margin: 10px auto 0 auto; background: #111; border: 2px solid #00ffe0; border-radius: 10px;}
     canvas { width: 100vw !important; height: 100% !important;}
     .controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; margin: 12px;}
     select { background-color: #111; color: #00ffe0; border: 2px solid #00ffe0; padding: 8px; font-size: 1em; border-radius: 8px;}
@@ -15,13 +15,10 @@
     #signalLog h3 { margin: 0 0 6px; text-align: center;}
     #signalList { list-style: none; padding-left: 10px; max-height:160px; overflow-y:auto;}
     #signalList li { margin-bottom: 5px; border-bottom: 1px solid #00ffe0; font-size:1.05em; }
-    .alert { font-weight: bold; color: #ff0; background: #222; padding: 2px 10px; border-radius: 4px;}
-    .macd-up { color: #0f0; }
-    .macd-down { color: #ff0040; }
-    .breach { color: #fff; background: #ff0040; }
-    .safe { color: #0f0; }
-    .risk { color: #ff9900; }
-    .prediction { color: #00aaff; }
+    .entry { color: #0f0; font-weight: bold;}
+    .exit { color: #ff0040; font-weight: bold;}
+    .predict { color: #ff0; font-weight: bold;}
+    .safe { color: #0ff; }
     @media (max-width: 800px) {
       #chart-container, #signalLog { width: 99vw; max-width: 99vw; }
       .controls { flex-direction: column; align-items:center; }
@@ -30,7 +27,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-  <header>MACD & Barrier Cross Dashboard</header>
+  <header>Barrier Entry/Exit Predictor</header>
   <div class="controls">
     <select id="volatilitySelector">
       <option value="R_10">Volatility 10 Index</option>
@@ -62,12 +59,10 @@
     <h3>📋 Signal Log</h3>
     <ul id="signalList"></ul>
   </div>
-
-  <audio id="macdUpSound" src="https://assets.mixkit.co/sfx/preview/mixkit-positive-interface-beep-221.mp3"></audio>
-  <audio id="macdDownSound" src="https://assets.mixkit.co/sfx/preview/mixkit-warning-notification-93.mp3"></audio>
-  <audio id="breachSound" src="https://assets.mixkit.co/sfx/preview/mixkit-tech-breakdown-2478.mp3"></audio>
-  <audio id="riskSound" src="https://assets.mixkit.co/sfx/preview/mixkit-interface-hint-notification-911.mp3"></audio>
-  <audio id="safeSound" src="https://assets.mixkit.co/sfx/preview/mixkit-positive-notification-951.mp3"></audio>
+  <audio id="entrySound" src="https://cdn.pixabay.com/audio/2022/08/20/audio_12c1b2b3e7.mp3"></audio>
+  <audio id="exitSound" src="https://cdn.pixabay.com/audio/2022/10/16/audio_128bfae3c9.mp3"></audio>
+  <audio id="predictSound" src="https://cdn.pixabay.com/audio/2022/03/15/audio_115b4d9b9e.mp3"></audio>
+  <audio id="safeSound" src="https://cdn.pixabay.com/audio/2022/03/15/audio_115b4d9b9e.mp3"></audio>
 
   <script>
     const app_id = 1089;
@@ -79,22 +74,19 @@
     let barrier = null;
     let growthRate = 1;
     let selectedSymbol = "R_75";
-    let lastBreach = false;
-    let lastMacdCross = null; // 'up', 'down'
-    let lastState = null; // 'SAFE', 'RISK', 'LOSS'
-    let macdArr = [], signalArr = [];
+    let lastCross = null; // 'above' or 'below'
+    let lastPrediction = null;
+    let justCrossed = false; // blocks "SAFE" log on cross tick
 
-    // Chart.js setup: price, barrier, MACD, Signal (all lines, no dots)
+    // Chart.js setup: price + barrier
     const ctx = document.getElementById('priceChart').getContext('2d');
     let priceChart = new Chart(ctx, {
       type: 'line',
       data: {
         labels: [],
         datasets: [
-          { label: 'Price', data: [], borderColor: '#00ffe0', borderWidth: 2, tension: 0.25, pointRadius: 0, pointHoverRadius: 0, yAxisID: 'y' },
-          { label: 'Barrier', data: [], borderColor: '#ff0040', borderWidth: 2, borderDash: [8, 6], tension: 0, pointRadius: 0, pointHoverRadius: 0, yAxisID: 'y' },
-          { label: 'MACD', data: [], borderColor: '#0f0', borderWidth: 2, tension: 0.25, pointRadius: 0, pointHoverRadius: 0, yAxisID: 'macd' },
-          { label: 'Signal', data: [], borderColor: '#ff0', borderWidth: 2, tension: 0.25, pointRadius: 0, pointHoverRadius: 0, yAxisID: 'macd' }
+          { label: 'Price', data: [], borderColor: '#00ffe0', borderWidth: 2, tension: 0.25, pointRadius: 0, pointHoverRadius: 0 },
+          { label: 'Barrier', data: [], borderColor: '#ff0040', borderWidth: 2, borderDash: [8, 6], tension: 0, pointRadius: 0, pointHoverRadius: 0 }
         ]
       },
       options: {
@@ -102,12 +94,8 @@
         maintainAspectRatio: false,
         plugins: { legend: { labels: { color: '#fff' } } },
         scales: {
-          y: { position:'left', title:{display:true, text:'Price/Barrier', color:'#00ffe0'},
-            ticks: { color: '#fff' }, grid: { color: 'rgba(255,255,255,0.08)' }
-          },
-          macd: { position:'right', title:{display:true, text:'MACD', color:'#0f0'},
-            ticks: { color: '#0f0' }, grid: { display:false }, min:-5, max:5
-          }
+          x: { display: false },
+          y: { ticks: { color: '#fff' }, grid: { color: 'rgba(255,255,255,0.08)' } }
         }
       }
     });
@@ -121,17 +109,21 @@
       list.prepend(logItem);
     }
 
+    function playSound(id) {
+      // For browser sound policies. Will only work after user interacts once.
+      var audio = document.getElementById(id);
+      if(audio) { audio.pause(); audio.currentTime = 0; audio.play(); }
+    }
+
     function applySettings() {
       selectedSymbol = document.getElementById('volatilitySelector').value;
       growthRate = parseFloat(document.getElementById('growthRateSelector').value);
       tickPrices = [];
       tickTimes = [];
       barrier = null;
-      lastBreach = false;
-      lastMacdCross = null;
-      lastState = null;
-      macdArr = [];
-      signalArr = [];
+      lastCross = null;
+      lastPrediction = null;
+      justCrossed = false;
       priceChart.data.labels = [];
       priceChart.data.datasets.forEach(ds=>ds.data=[]);
       priceChart.update();
@@ -160,114 +152,83 @@
       };
     }
 
-    function calculateEMA(period, prices) {
-      if (prices.length < 1) return [];
-      const k = 2 / (period + 1);
-      let ema = prices[0];
-      const result = [ema];
-      for (let i = 1; i < prices.length; i++) {
-        ema = prices[i] * k + ema * (1 - k);
-        result.push(ema);
-      }
-      return result;
-    }
-
     function updatePriceChart() {
-      priceChart.data.labels = tickTimes.map(()=>""); // blank label, no time zone
+      priceChart.data.labels = tickTimes.map(()=>""); // no timezone
       priceChart.data.datasets[0].data = tickPrices;
       priceChart.data.datasets[1].data = Array(tickPrices.length).fill(barrier);
+      priceChart.update();
 
-      // MACD calculation (standard 12,26,9)
-      let macd = [], signal = [];
-      if (tickPrices.length >= 26) {
-        const emaFast = calculateEMA(12, tickPrices);
-        const emaSlow = calculateEMA(26, tickPrices);
-        for (let i = 0; i < Math.min(emaFast.length, emaSlow.length); i++)
-          macd.push(emaFast[i] - emaSlow[i]);
-        signal = calculateEMA(9, macd);
-
-        macdArr = macd;
-        signalArr = signal;
-
-        // Pad MACD/Signal data to align with price data for the chart
-        const pad = tickPrices.length - macd.length;
-        const macdPlot = Array(pad).fill(null).concat(macd);
-        const signalPlot = Array(pad + (macd.length - signal.length)).fill(null).concat(signal);
-
-        priceChart.data.datasets[2].data = macdPlot;
-        priceChart.data.datasets[3].data = signalPlot;
-
-        priceChart.update();
-      } else {
-        priceChart.data.datasets[2].data = [];
-        priceChart.data.datasets[3].data = [];
-        priceChart.update();
-      }
-
-      // --- Signal log (every tick!)
+      if (tickPrices.length < 2) return;
+      const prev = tickPrices[tickPrices.length-2];
       const curr = tickPrices[tickPrices.length-1];
-      let signalMsg = "";
-      let macdMsg = "";
-      let breachMsg = "";
-      let safeRiskMsg = "";
-      let type = "";
 
-      // MACD cross status
-      if (macd.length >= 2 && signal.length >= 2) {
-        const prevMACD = macd[macd.length-2], currMACD = macd[macd.length-1];
-        const prevSignal = signal[signal.length-2], currSignal = signal[signal.length-1];
-        const prevDiff = prevMACD - prevSignal;
-        const currDiff = currMACD - currSignal;
-        if (prevDiff < 0 && currDiff > 0) {
-          macdMsg = "🔼 MACD CROSSED ABOVE Signal (bullish)";
-          type = "macd-up";
-          document.getElementById("macdUpSound").play();
-        } else if (prevDiff > 0 && currDiff < 0) {
-          macdMsg = "🔽 MACD CROSSED BELOW Signal (bearish)";
-          type = "macd-down";
-          document.getElementById("macdDownSound").play();
-        } else if (currDiff > 0) {
-          macdMsg = "MACD ABOVE Signal";
-          type = "macd-up";
-        } else {
-          macdMsg = "MACD BELOW Signal";
-          type = "macd-down";
-        }
-      } else {
-        macdMsg = "MACD waiting for enough data...";
-        type = "";
+      justCrossed = false;
+
+      // Detect barrier crossing and log ENTRY/EXIT only on true cross
+      if (prev < barrier && curr >= barrier && lastCross !== 'above') {
+        logSignal(`✅ ENTRY: Price crossed upward at ${curr.toFixed(5)}`, "entry");
+        playSound("entrySound");
+        lastCross = 'above';
+        lastPrediction = null;
+        justCrossed = true;
+      }
+      else if (prev > barrier && curr <= barrier && lastCross !== 'below') {
+        logSignal(`❌ EXIT: Price crossed downward at ${curr.toFixed(5)}`, "exit");
+        playSound("exitSound");
+        lastCross = 'below';
+        lastPrediction = null;
+        justCrossed = true;
       }
 
-      // Barrier crossing
-      if (tickPrices.length >= 2) {
-        const prev = tickPrices[tickPrices.length-2];
-        if ((prev < barrier && curr >= barrier) || (prev > barrier && curr <= barrier)) {
-          breachMsg = `🟥 LOSS! Price crossed the barrier at ${curr.toFixed(5)}`;
-          type = "breach";
-          document.getElementById("breachSound").play();
+      // Predict 4 ticks ahead
+      if (tickPrices.length >= 5) {
+        let v = (tickPrices[tickPrices.length-1] - tickPrices[tickPrices.length-5]) / 4.0;
+        let pred = tickPrices[tickPrices.length-1] + v*4;
+        // If currently below barrier and prediction crosses above: predict ENTRY
+        if (curr < barrier && pred >= barrier && lastPrediction !== 'entry') {
+          logSignal("⏰ ENTRY in ~4 sec (predicted)", "predict");
+          playSound("predictSound");
+          lastPrediction = 'entry';
+        }
+        // If currently above barrier and prediction crosses below: predict EXIT
+        if (curr > barrier && pred <= barrier && lastPrediction !== 'exit') {
+          logSignal("⏰ EXIT in ~4 sec (predicted)", "predict");
+          playSound("predictSound");
+          lastPrediction = 'exit';
         }
       }
 
-      // Safe/Risk logic
-      const distance = Math.abs(barrier - curr);
-      if (distance < curr * 0.005) {
-        safeRiskMsg = `⚠️ RISK: Price near barrier at ${curr.toFixed(5)}`;
-        if (lastState !== "RISK") document.getElementById("riskSound").play();
-        lastState = "RISK";
-        type = "risk";
-      } else {
-        safeRiskMsg = `🟩 SAFE: Price safely away from barrier (${curr.toFixed(5)})`;
-        if (lastState !== "SAFE") document.getElementById("safeSound").play();
-        lastState = "SAFE";
-        type = "safe";
+      // Log SAFE if not a cross tick or prediction, and not already "SAFE"
+      if (!justCrossed && !recentPrediction() && lastCross) {
+        // Only log SAFE if not already last SAFE
+        if (!lastSafeLogged()) {
+          logSignal("🟦 SAFE", "safe");
+          playSound("safeSound");
+        }
       }
-
-      // Combine and log
-      signalMsg = [macdMsg, breachMsg, safeRiskMsg].filter(Boolean).join(" | ");
-      logSignal(signalMsg, type);
     }
+
+    function recentPrediction() {
+      // Check if the last log is a predict for the same direction
+      const list = document.getElementById('signalList');
+      if (list.childNodes.length === 0) return false;
+      const recent = list.childNodes[0].textContent;
+      return (recent && recent.startsWith("⏰"));
+    }
+
+    function lastSafeLogged() {
+      const list = document.getElementById('signalList');
+      if (list.childNodes.length === 0) return false;
+      const recent = list.childNodes[0].textContent;
+      return (recent && recent.includes("SAFE"));
+    }
+
+    // User must interact once for audio to play on some browsers
+    window.addEventListener('click', () => {
+      document.querySelectorAll('audio').forEach(a => { a.muted = false; });
+    }, { once: true });
 
     window.onload = () => applySettings();
   </script>
 </body>
-  </html>
+        </html>
