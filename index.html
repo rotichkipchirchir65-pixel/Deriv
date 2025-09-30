@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>ELIAKIM DERIV ANALYSIS TOOL - Advanced</title>
+  <title>Pro Deriv Barrier & MACD Dashboard - Advanced</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     body {
@@ -127,15 +127,16 @@
   <audio id="multiSound" src="https://cdn.pixabay.com/audio/2022/11/16/audio_125bfa8e76.mp3"></audio>
 
   <script>
-    // Deriv websocket settings
+    // --- Configuration
     const app_id = 1089, api_token = "lKcYGLpmaAMgUkH";
     let ws = null, tickPrices = [], tickTimes = [];
-    const maxTicks = 200;
+    const maxTicks = 400;
     let barrier = null, growthRate = 1, selectedSymbol = "R_75";
     let lastCross = null, lastPrediction = null, justCrossed = false;
     let lastMacdCross = null, macdArr = [], signalArr = [];
     let lastSafe = false, lastRisky = false, lastMulti = false;
     let lastTrend = null, lastVol = null, lastLog = "";
+    let rsiPeriod = 14, emaPeriod = 50;
 
     // Chart: price + barrier + EMA + MACD + Signal + RSI
     const ctx = document.getElementById('priceChart').getContext('2d');
@@ -168,7 +169,10 @@
       }
     });
 
-    function logSignal(message, type="") {
+    let lastLogMsg = "";
+    function logSignal(message, type = "") {
+      if (message === lastLogMsg) return; // Avoid duplicate logs
+      lastLogMsg = message;
       const logItem = document.createElement('li');
       logItem.textContent = message;
       if (type) logItem.className = type;
@@ -298,8 +302,8 @@
     }
 
     function updatePriceChart() {
-      let rsiPeriod = parseInt(document.getElementById('rsiPeriod').value);
-      let emaPeriod = parseInt(document.getElementById('emaPeriod').value);
+      rsiPeriod = parseInt(document.getElementById('rsiPeriod').value);
+      emaPeriod = parseInt(document.getElementById('emaPeriod').value);
 
       priceChart.data.labels = tickTimes.map(()=>"");
       priceChart.data.datasets[0].data = tickPrices;
@@ -423,22 +427,20 @@
         lastSafe = true; lastRisky = false;
       }
 
-      // Always log, on every tick, but avoid double logs for the same tick
+      // Always log, on every tick, but avoid duplicate logs for the same tick
       let logMsg = summary.join(" | ");
       if (!logMsg) logMsg = "🟦 SAFE";
-      if (logMsg !== lastLog) {
-        logSignal(logMsg,
-          logMsg.includes("ENTRY") ? "entry" :
-          logMsg.includes("EXIT") ? "exit" :
-          logMsg.includes("RISKY") ? "risky" :
-          logMsg.includes("SAFE") ? "safe" :
-          logMsg.includes("MACD") ? (logMsg.includes("ABOVE") ? "macd-up" : "macd-down") :
-          logMsg.includes("Multi-indicator") ? "multi" :
-          logMsg.includes("Trend") ? "trend" :
-          logMsg.includes("Volatility") ? "volatility" :
-          logMsg.includes("predict") ? "predict" : "");
-        lastLog = logMsg;
-      }
+      logSignal(logMsg,
+        logMsg.includes("ENTRY") ? "entry" :
+        logMsg.includes("EXIT") ? "exit" :
+        logMsg.includes("RISKY") ? "risky" :
+        logMsg.includes("SAFE") ? "safe" :
+        logMsg.includes("MACD") ? (logMsg.includes("ABOVE") ? "macd-up" : "macd-down") :
+        logMsg.includes("Multi-indicator") ? "multi" :
+        logMsg.includes("Trend") ? "trend" :
+        logMsg.includes("Volatility") ? "volatility" :
+        logMsg.includes("predict") ? "predict" : "");
+      lastLog = logMsg;
     }
 
     // Enable audio after user interacts
