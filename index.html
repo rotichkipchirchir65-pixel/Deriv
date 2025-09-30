@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MACD & Barrier Cross Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    body { background-color: #0a0a0a; color: #00ffe0; font-family: 'Orbitron', sans-serif; margin: 0; padding: 0;}
+    header { background: linear-gradient(to right, #ff0040, #ff9900); padding: 20px; text-align: center; font-size: 2em; color: #fff; text-shadow: 0 0 10px #ff0040;}
+    #chart-container { width: 100vw; max-width: 100vw; height: 450px; margin: 10px auto 0 auto; background: #111; border: 2px solid #00ffe0; padding: 0px; border-radius: 10px;}
+    canvas { width: 100vw !important; height: 100% !important;}
+    .controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; margin: 12px;}
+    select { background-color: #111; color: #00ffe0; border: 2px solid #00ffe0; padding: 8px; font-size: 1em; border-radius: 8px;}
+    #signalLog { width: 99vw; max-width: 99vw; margin: 12px auto; padding: 8px; background: #111; border: 2px solid #00ffe0; border-radius: 10px; color: #00ffe0; font-family: 'Orbitron', sans-serif;}
+    #signalLog h3 { margin: 0 0 6px; text-align: center;}
+    #signalList { list-style: none; padding-left: 10px; max-height:160px; overflow-y:auto;}
+    #signalList li { margin-bottom: 5px; border-bottom: 1px solid #00ffe0; font-size:1.05em; }
+    .alert { font-weight: bold; color: #ff0; background: #222; padding: 2px 10px; border-radius: 4px;}
+    .macd-up { color: #0f0; }
+    .macd-down { color: #ff0040; }
+    .breach { color: #fff; background: #ff0040; }
+    .safe { color: #0f0; }
+    .risk { color: #ff9900; }
+    .prediction { color: #00aaff; }
+    @media (max-width: 800px) {
+      #chart-container, #signalLog { width: 99vw; max-width: 99vw; }
+      .controls { flex-direction: column; align-items:center; }
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <header>MACD & Barrier Cross Dashboard</header>
+  <div class="controls">
+    <select id="volatilitySelector">
+      <option value="R_10">Volatility 10 Index</option>
+      <option value="R_25">Volatility 25 Index</option>
+      <option value="R_50">Volatility 50 Index</option>
+      <option value="R_75" selected>Volatility 75 Index</option>
+      <option value="R_100">Volatility 100 Index</option>
+      <option value="R_10_1HZ">Volatility 10 (1s)</option>
+      <option value="R_25_1HZ">Volatility 25 (1s)</option>
+      <option value="R_50_1HZ">Volatility 50 (1s)</option>
+      <option value="R_75_1HZ">Volatility 75 (1s)</option>
+      <option value="R_100_1HZ">Volatility 100 (1s)</option>
+    </select>
+    <select id="growthRateSelector">
+      <option value="1">Growth Rate: 1%</option>
+      <option value="2">Growth Rate: 2%</option>
+      <option value="3">Growth Rate: 3%</option>
+      <option value="4">Growth Rate: 4%</option>
+      <option value="5">Growth Rate: 5%</option>
+    </select>
+    <button onclick="applySettings()">⚙️ Apply</button>
+  </div>
+
+  <div id="chart-container">
+    <canvas id="priceChart"></canvas>
+  </div>
+
+  <div id="signalLog">
+    <h3>📋 Signal Log</h3>
+    <ul id="signalList"></ul>
+  </div>
+
+  <audio id="macdUpSound" src="https://assets.mixkit.co/sfx/preview/mixkit-positive-interface-beep-221.mp3"></audio>
+  <audio id="macdDownSound" src="https://assets.mixkit.co/sfx/preview/mixkit-warning-notification-93.mp3"></audio>
+  <audio id="breachSound" src="https://assets.mixkit.co/sfx/preview/mixkit-tech-breakdown-2478.mp3"></audio>
+  <audio id="riskSound" src="https://assets.mixkit.co/sfx/preview/mixkit-interface-hint-notification-911.mp3"></audio>
+  <audio id="safeSound" src="https://assets.mixkit.co/sfx/preview/mixkit-positive-notification-951.mp3"></audio>
+
+  <script>
+    const app_id = 1089;
+    const api_token = "lKcYGLpmaAMgUkH";
+    let ws = null;
+    let tickPrices = [];
+    let tickTimes = [];
+    const maxTicks = 200;
+    let barrier = null;
+    let growthRate = 1;
+    let selectedSymbol = "R_75";
+    let lastBreach = false;
+    let lastMacdCross = null; // 'up', 'down'
+    let lastState = null; // 'SAFE', 'RISK', 'LOSS'
+    let macdArr = [], signalArr = [];
+
+    // Chart.js setup: price, barrier, MACD, Signal (all lines, no dots)
+    const ctx = document.getElementById('priceChart').getContext('2d');
+    let priceChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: 'Price', data: [], borderColor: '#00ffe0', borderWidth: 2, tension: 0.25, pointRadius: 0, pointHoverRadius: 0, yAxisID: 'y' },
+          { label: 'Barrier', data: [], borderColor: '#ff0040', borderWidth: 2, borderDash: [8, 6], tension: 0, pointRadius: 0, pointHoverRadius: 0, yAxisID: 'y' },
+          { label: 'MACD', data: [], borderColor: '#0f0', borderWidth: 2, tension: 0.25, pointRadius: 0, pointHoverRadius: 0, yAxisID: 'macd' },
+          { label: 'Signal', data: [], borderColor: '#ff0', borderWidth: 2, tension: 0.25, pointRadius: 0, pointHoverRadius: 0, yAxisID: 'macd' }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#fff' } } },
+        scales: {
+          y: { position:'left', title:{display:true, text:'Price/Barrier', color:'#00ffe0'},
+            ticks: { color: '#fff' }, grid: { color: 'rgba(255,255,255,0.08)' }
+          },
+          macd: { position:'right', title:{display:true, text:'MACD', color:'#0f0'},
+            ticks: { color: '#0f0' }, grid: { display:false }, min:-5, max:5
+          }
+        }
+      }
+    });
+
+    function logSignal(message, type="") {
+      const logItem = document.createElement('li');
+      logItem.textContent = message;
+      if (type) logItem.className = type;
+      const list = document.getElementById('signalList');
+      if (list.childNodes.length > 160) list.removeChild(list.lastChild);
+      list.prepend(logItem);
+    }
+
+    function applySettings() {
+      selectedSymbol = document.getElementById('volatilitySelector').value;
+      growthRate = parseFloat(document.getElementById('growthRateSelector').value);
+      tickPrices = [];
+      tickTimes = [];
+      barrier = null;
+      lastBreach = false;
+      lastMacdCross = null;
+      lastState = null;
+      macdArr = [];
+      signalArr = [];
+      priceChart.data.labels = [];
+      priceChart.data.datasets.forEach(ds=>ds.data=[]);
+      priceChart.update();
+      connectToDeriv();
+    }
+
+    function connectToDeriv() {
+      if (ws) { ws.onclose=null; ws.onerror=null; ws.close(); ws=null; }
+      ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${app_id}`);
+      ws.onopen = () => { ws.send(JSON.stringify({ authorize: api_token })); };
+      ws.onmessage = msg => {
+        try {
+          const data = JSON.parse(msg.data);
+          if (data.msg_type === "authorize") ws.send(JSON.stringify({ ticks: selectedSymbol, subscribe: 1 }));
+          if (data.msg_type === "tick") {
+            const price = parseFloat(data.tick.quote);
+            const time = data.tick.epoch * 1000;
+            if (!isFinite(price)) return;
+            tickPrices.push(price);
+            tickTimes.push(time);
+            if (tickPrices.length > maxTicks) { tickPrices.shift(); tickTimes.shift(); }
+            if (barrier === null) barrier = price * (1 + growthRate / 100);
+            updatePriceChart();
+          }
+        } catch (err) { console.error("Error handling message:", err); }
+      };
+    }
+
+    function calculateEMA(period, prices) {
+      if (prices.length < 1) return [];
+      const k = 2 / (period + 1);
+      let ema = prices[0];
+      const result = [ema];
+      for (let i = 1; i < prices.length; i++) {
+        ema = prices[i] * k + ema * (1 - k);
+        result.push(ema);
+      }
+      return result;
+    }
+
+    function updatePriceChart() {
+      priceChart.data.labels = tickTimes.map(()=>""); // blank label, no time zone
+      priceChart.data.datasets[0].data = tickPrices;
+      priceChart.data.datasets[1].data = Array(tickPrices.length).fill(barrier);
+
+      // MACD calculation (standard 12,26,9)
+      let macd = [], signal = [];
+      if (tickPrices.length >= 26) {
+        const emaFast = calculateEMA(12, tickPrices);
+        const emaSlow = calculateEMA(26, tickPrices);
+        for (let i = 0; i < Math.min(emaFast.length, emaSlow.length); i++)
+          macd.push(emaFast[i] - emaSlow[i]);
+        signal = calculateEMA(9, macd);
+
+        macdArr = macd;
+        signalArr = signal;
+
+        // Pad MACD/Signal data to align with price data for the chart
+        const pad = tickPrices.length - macd.length;
+        const macdPlot = Array(pad).fill(null).concat(macd);
+        const signalPlot = Array(pad + (macd.length - signal.length)).fill(null).concat(signal);
+
+        priceChart.data.datasets[2].data = macdPlot;
+        priceChart.data.datasets[3].data = signalPlot;
+
+        priceChart.update();
+      } else {
+        priceChart.data.datasets[2].data = [];
+        priceChart.data.datasets[3].data = [];
+        priceChart.update();
+      }
+
+      // --- Signal log (every tick!)
+      const curr = tickPrices[tickPrices.length-1];
+      let signalMsg = "";
+      let macdMsg = "";
+      let breachMsg = "";
+      let safeRiskMsg = "";
+      let type = "";
+
+      // MACD cross status
+      if (macd.length >= 2 && signal.length >= 2) {
+        const prevMACD = macd[macd.length-2], currMACD = macd[macd.length-1];
+        const prevSignal = signal[signal.length-2], currSignal = signal[signal.length-1];
+        const prevDiff = prevMACD - prevSignal;
+        const currDiff = currMACD - currSignal;
+        if (prevDiff < 0 && currDiff > 0) {
+          macdMsg = "🔼 MACD CROSSED ABOVE Signal (bullish)";
+          type = "macd-up";
+          document.getElementById("macdUpSound").play();
+        } else if (prevDiff > 0 && currDiff < 0) {
+          macdMsg = "🔽 MACD CROSSED BELOW Signal (bearish)";
+          type = "macd-down";
+          document.getElementById("macdDownSound").play();
+        } else if (currDiff > 0) {
+          macdMsg = "MACD ABOVE Signal";
+          type = "macd-up";
+        } else {
+          macdMsg = "MACD BELOW Signal";
+          type = "macd-down";
+        }
+      } else {
+        macdMsg = "MACD waiting for enough data...";
+        type = "";
+      }
+
+      // Barrier crossing
+      if (tickPrices.length >= 2) {
+        const prev = tickPrices[tickPrices.length-2];
+        if ((prev < barrier && curr >= barrier) || (prev > barrier && curr <= barrier)) {
+          breachMsg = `🟥 LOSS! Price crossed the barrier at ${curr.toFixed(5)}`;
+          type = "breach";
+          document.getElementById("breachSound").play();
+        }
+      }
+
+      // Safe/Risk logic
+      const distance = Math.abs(barrier - curr);
+      if (distance < curr * 0.005) {
+        safeRiskMsg = `⚠️ RISK: Price near barrier at ${curr.toFixed(5)}`;
+        if (lastState !== "RISK") document.getElementById("riskSound").play();
+        lastState = "RISK";
+        type = "risk";
+      } else {
+        safeRiskMsg = `🟩 SAFE: Price safely away from barrier (${curr.toFixed(5)})`;
+        if (lastState !== "SAFE") document.getElementById("safeSound").play();
+        lastState = "SAFE";
+        type = "safe";
+      }
+
+      // Combine and log
+      signalMsg = [macdMsg, breachMsg, safeRiskMsg].filter(Boolean).join(" | ");
+      logSignal(signalMsg, type);
+    }
+
+    window.onload = () => applySettings();
+  </script>
+</body>
+  </html>
