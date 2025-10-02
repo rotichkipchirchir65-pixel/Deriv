@@ -7,68 +7,22 @@
   <style>
     body { background-color: #0a0a0a; color: #00ffe0; font-family: 'Orbitron', sans-serif; margin: 0; padding: 0;}
     header { background: linear-gradient(to right, #ff0040, #ff9900); padding: 20px; text-align: center; font-size: 2em; color: #fff; text-shadow: 0 0 10px #ff0040;}
-    .controls {
-      display: flex;
-      flex-direction: row;
-      justify-content: center;
-      align-items: center;
-      gap: 14px;
-      margin: 15px 0 15px 0;
-      flex-wrap: wrap;
-    }
-    .controls select, .controls input[type=number], .controls button {
-      background-color: #111;
-      color: #00ffe0;
-      border: 2px solid #00ffe0;
-      padding: 6px 12px;
-      font-size: 1em;
-      border-radius: 7px;
-      min-width: 90px;
-    }
-    .controls label { font-size: 1em; }
-    #themeToggle { cursor:pointer; padding: 6px 12px; border-radius: 7px; background: #222; color:#fff; border:1px solid #00ffe0; }
+    #chart-container { width: 98vw; max-width: 1200px; height: 340px; margin: 20px auto 0 auto; background: #111; border: 2px solid #00ffe0; padding: 8px; border-radius: 10px;}
+    #macd-container { width:98vw; max-width: 1200px; height: 180px; margin: 0 auto 20px auto; background: #111; border: 2px solid #00ffe0; padding: 8px; border-radius: 10px;}
+    canvas { width: 100% !important; height: 100% !important;}
+    .controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; margin: 12px;}
+    select, input[type=number] { background-color: #111; color: #00ffe0; border: 2px solid #00ffe0; padding: 8px; font-size: 1em; border-radius: 8px;}
+    label { color: #00ffe0; }
+    #themeToggle { cursor:pointer; padding: 5px 12px; border-radius: 8px; background: #222; color:#fff; border:1px solid #00ffe0; }
     #lossShield { margin-top: 10px; text-align: center;}
-    #signalLog { width: 98vw; max-width: 1200px; margin: 10px auto; padding: 8px; background: #111; border: 2px solid #00ffe0; border-radius: 10px; color: #00ffe0;}
+    #signalLog { width: 98vw; max-width: 1200px; margin: 10px auto; padding: 8px; background: #111; border: 2px solid #00ffe0; border-radius: 10px; color: #00ffe0; font-family: 'Orbitron', sans-serif;}
     #signalLog h3 { margin: 0 0 6px; text-align: center;}
     #signalList { list-style: none; padding-left: 10px; max-height:120px; overflow-y:auto;}
     #signalList li { margin-bottom: 5px; border-bottom: 1px solid #00ffe0; font-size:0.97em; }
     .alert { font-weight: bold; color: #ff0; background: #222; padding: 2px 10px; border-radius: 4px;}
-    #chart-container {
-      width: 98vw;
-      max-width: 1200px;
-      height: 220px;
-      margin: 20px auto 0 auto;
-      background: #111;
-      border: 2px solid #00ffe0;
-      padding: 8px;
-      border-radius: 10px;
-    }
-    #macd-scroll-wrapper {
-      width: 98vw;
-      max-width: 1600px;
-      overflow-x: auto;
-      margin: 0 auto 22px auto;
-      background: #111;
-      border: 2px solid #00ffe0;
-      padding: 6px;
-      border-radius: 10px;
-      height: 520px;
-    }
-    #macdChart {
-      width: 2600px !important;
-      height: 500px !important;
-      min-width: 1200px;
-      min-height: 280px;
-      display: block;
-    }
-    @media (max-width: 1700px) {
-      #macd-scroll-wrapper { max-width: 99vw; }
-      #macdChart { min-width: 900px; width: 1400px !important; }
-    }
     @media (max-width: 800px) {
-      #chart-container, #macd-scroll-wrapper, #signalLog { width: 99vw; max-width: 99vw; }
+      #chart-container, #macd-container, #signalLog { width: 99vw; max-width: 99vw; }
       .controls { flex-direction: column; align-items:center; }
-      #macdChart { width: 900px !important; min-width: 700px; height: 240px !important; min-height: 100px; }
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -78,34 +32,28 @@
 <body>
   <header>ELIAKIM-N SPARK-X • MACD Dashboard (Advanced)</header>
   <div class="controls">
-    <label>
-      Volatility:
-      <select id="volatilitySelector">
-        <option value="R_10">Volatility 10 Index</option>
-        <option value="R_25">Volatility 25 Index</option>
-        <option value="R_50">Volatility 50 Index</option>
-        <option value="R_75" selected>Volatility 75 Index</option>
-        <option value="R_100">Volatility 100 Index</option>
-        <option value="R_10_1HZ">Volatility 10 (1s)</option>
-        <option value="R_25_1HZ">Volatility 25 (1s)</option>
-        <option value="R_50_1HZ">Volatility 50 (1s)</option>
-        <option value="R_75_1HZ">Volatility 75 (1s)</option>
-        <option value="R_100_1HZ">Volatility 100 (1s)</option>
-      </select>
-    </label>
+    <select id="volatilitySelector">
+      <option value="R_10">Volatility 10 Index</option>
+      <option value="R_25">Volatility 25 Index</option>
+      <option value="R_50">Volatility 50 Index</option>
+      <option value="R_75" selected>Volatility 75 Index</option>
+      <option value="R_100">Volatility 100 Index</option>
+      <option value="R_10_1HZ">Volatility 10 (1s)</option>
+      <option value="R_25_1HZ">Volatility 25 (1s)</option>
+      <option value="R_50_1HZ">Volatility 50 (1s)</option>
+      <option value="R_75_1HZ">Volatility 75 (1s)</option>
+      <option value="R_100_1HZ">Volatility 100 (1s)</option>
+    </select>
     <label>Fast EMA: <input type="number" id="fastEma" value="12" min="2" max="50" size="3"></label>
     <label>Slow EMA: <input type="number" id="slowEma" value="26" min="4" max="100" size="3"></label>
     <label>Signal EMA: <input type="number" id="signalEma" value="9" min="2" max="50" size="3"></label>
-    <label>
-      Growth Rate:
-      <select id="growthRateSelector">
-        <option value="1">1%</option>
-        <option value="2">2%</option>
-        <option value="3">3%</option>
-        <option value="4">4%</option>
-        <option value="5">5%</option>
-      </select>
-    </label>
+    <select id="growthRateSelector">
+      <option value="1">Growth Rate: 1%</option>
+      <option value="2">Growth Rate: 2%</option>
+      <option value="3">Growth Rate: 3%</option>
+      <option value="4">Growth Rate: 4%</option>
+      <option value="5">Growth Rate: 5%</option>
+    </select>
     <button onclick="applySettings()">⚙️ Apply</button>
     <button id="themeToggle" onclick="toggleTheme()">🌒 Theme</button>
     <button onclick="exportLog()">Export Log</button>
@@ -114,10 +62,11 @@
   <div id="chart-container">
     <canvas id="candlestickChart"></canvas>
   </div>
-  <div id="macd-scroll-wrapper">
+  <div id="macd-container">
     <canvas id="macdChart"></canvas>
   </div>
-  <div id="lossShield" style="margin-bottom:8px;">
+
+  <div id="lossShield">
     <label>
       <input type="checkbox" id="shieldToggle" />
       🛡️ Loss Shield (Disable trades near barrier)
@@ -127,6 +76,7 @@
     <h3>📋 Signal Log</h3>
     <ul id="signalList"></ul>
   </div>
+
   <!-- Alert sounds -->
   <audio id="entrySound" src="https://assets.mixkit.co/sfx/preview/mixkit-positive-interface-beep-221.mp3"></audio>
   <audio id="exitSound" src="https://assets.mixkit.co/sfx/preview/mixkit-warning-notification-93.mp3"></audio>
@@ -141,6 +91,8 @@
     let ws = null;
     let tickPrices = [];
     let tickTimes = [];
+    let candleData = [];
+    const maxTicks = 400;
     let barrier = null;
     let growthRate = 1;
     let selectedSymbol = "R_75";
@@ -149,7 +101,6 @@
     const wsRetryDelay = 2000;
     let lastEarlyAlertIdx = -1000;
     let theme = "dark";
-    const maxTicks = 5000;  // long history for scrolling
 
     // --- Chart.js candlestick (price)
     const candlestickCtx = document.getElementById('candlestickChart').getContext('2d');
@@ -166,7 +117,7 @@
       }
     });
 
-    // --- Chart.js MACD (broad and scrollable)
+    // --- Chart.js MACD
     const macdCtx = document.getElementById('macdChart').getContext('2d');
     let macdChart = new Chart(macdCtx, {
       type: 'line',
@@ -203,14 +154,12 @@
         ]
       },
       options: {
-        responsive: false,
-        maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false,
         plugins: { legend: { labels: { color: '#fff' } }, annotation: {} },
         scales: {
-          x: { display: true, grid: { display: false }, ticks: { color: '#fff', maxRotation: 0, autoSkip: true } },
+          x: { display: false, grid: { display: false } },
           y: { display: true, grid: { display: false }, ticks: { color: '#fff' } }
-        },
-        animation: false
+        }
       }
     });
 
@@ -219,13 +168,13 @@
       if (theme === "dark") {
         document.body.style.background = "#f3f3f3";
         document.body.style.color = "#222";
-        document.querySelectorAll("header, #chart-container, #macd-scroll-wrapper, #signalLog").forEach(e=>e.style.background="#fff");
+        document.querySelectorAll("header, #chart-container, #macd-container, #signalLog").forEach(e=>e.style.background="#fff");
         document.querySelectorAll("header").forEach(e=>e.style.color="#222");
         theme = "light";
       } else {
         document.body.style.background = "#0a0a0a";
         document.body.style.color = "#00ffe0";
-        document.querySelectorAll("header, #chart-container, #macd-scroll-wrapper, #signalLog").forEach(e=>e.style.background="#111");
+        document.querySelectorAll("header, #chart-container, #macd-container, #signalLog").forEach(e=>e.style.background="#111");
         document.querySelectorAll("header").forEach(e=>e.style.color="#fff");
         theme = "dark";
       }
@@ -239,6 +188,7 @@
       tickTimes = [];
       barrier = null;
       wsRetryCount = 0;
+      // Reset charts
       candlestickChart.data.labels = [];
       candlestickChart.data.datasets[0].data = [];
       candlestickChart.update();
@@ -292,11 +242,12 @@
 
     // --- Chart update (candlestick + MACD)
     function updateCharts() {
-      candlestickChart.data.labels = tickTimes.slice(-400).map(t=>new Date(t));
-      candlestickChart.data.datasets[0].data = tickPrices.slice(-400);
+      // --- Candlestick/price chart
+      candlestickChart.data.labels = tickTimes.map(t=>new Date(t));
+      candlestickChart.data.datasets[0].data = tickPrices;
       candlestickChart.update();
 
-      // MACD chart -- keep all history for scrollback
+      // --- MACD
       const fast = parseInt(document.getElementById('fastEma').value);
       const slow = parseInt(document.getElementById('slowEma').value);
       const signalN = parseInt(document.getElementById('signalEma').value);
@@ -308,21 +259,16 @@
         macd.push(emaFast[i] - emaSlow[i]);
       const signal = calculateEMA(signalN, macd);
       const histogram = macd.map((v, i) => (signal[i] !== undefined ? v - signal[i] : 0));
-      // Keep all history for scrollback
-      macdChart.data.labels = tickTimes.slice(0, macd.length).map(t=>new Date(t));
-      macdChart.data.datasets[0].data = macd;
-      macdChart.data.datasets[1].data = signal;
-      macdChart.data.datasets[2].data = histogram;
+      const plotLen = Math.min(macd.length, signal.length, histogram.length, tickTimes.length);
+      macdChart.data.labels = tickTimes.slice(-plotLen).map(t=>new Date(t));
+      macdChart.data.datasets[0].data = macd.slice(-plotLen);
+      macdChart.data.datasets[1].data = signal.slice(-plotLen);
+      macdChart.data.datasets[2].data = histogram.slice(-plotLen);
       macdChart.options.plugins.annotation = {};
       macdChart.update();
 
-      analyzeSignals(macd, signal, histogram, tickPrices[tickPrices.length-1]);
+      analyzeSignals(macd.slice(-plotLen), signal.slice(-plotLen), histogram.slice(-plotLen), tickPrices[tickPrices.length-1]);
       checkEarlyBarrierAlert();
-      // Auto-scroll to latest
-      setTimeout(() => {
-        const wrapper = document.getElementById('macd-scroll-wrapper');
-        wrapper.scrollLeft = wrapper.scrollWidth;
-      }, 0);
     }
 
     // --- Signal analysis, log, and alerts
@@ -367,6 +313,7 @@
         if (soundId) document.getElementById(soundId).play();
       }
       logSignal(message);
+      // Add annotation to MACD chart
       if (annotation) {
         macdChart.options.plugins.annotation = {
           annotations: {
@@ -389,14 +336,16 @@
     // --- Early warning: 4 ticks ahead (4 seconds for 1s indices)
     function checkEarlyBarrierAlert() {
       if (!barrier || tickPrices.length < 5) return;
-      const dt = 1;
+      // Predict next 4 sec by average velocity
+      const dt = 1; // seconds per tick
       const n = 4;
+      // Use last 5 prices for velocity
       const dPrice = tickPrices[tickPrices.length-1] - tickPrices[tickPrices.length-5];
       const v = dPrice / (4*dt);
-      if (Math.abs(v) < 1e-6) return;
+      if (Math.abs(v) < 1e-6) return; // flat
       const future = tickPrices[tickPrices.length-1] + v * n;
       const willBreach = (v > 0 && future >= barrier) || (v < 0 && future <= barrier);
-      if (willBreach && tickPrices.length-lastEarlyAlertIdx > 10) {
+      if (willBreach && tickPrices.length-lastEarlyAlertIdx > 10) { // avoid repeated alerts
         lastEarlyAlertIdx = tickPrices.length;
         document.getElementById("earlyAlertSound").play();
         logSignal("⏰ EARLY ALERT: Barrier likely to be breached in ~4 seconds!", "alert");
@@ -416,6 +365,7 @@
       document.body.removeChild(a);
     }
 
+    // --- On page load
     window.onload = () => {
       applySettings();
       document.getElementById('fastEma').addEventListener('change', updateCharts);
@@ -424,4 +374,4 @@
     };
   </script>
 </body>
-      </html>
+</html>
