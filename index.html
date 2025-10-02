@@ -2,42 +2,502 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>SPARK-X Accurate Dashboard (TradingView)</title>
+  <title>SPARK-X MACD Dashboard (Accurate Signals + Early Alerts)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
-    body { background: #0a0a0a; color: #fff; margin: 0; padding: 0; }
-    header { background: linear-gradient(to right, #ff0040, #ff9900); padding: 20px; text-align: center; font-size: 2em; color: #fff; }
+    body { background-color: #0a0a0a; color: #00ffe0; font-family: 'Orbitron', sans-serif; margin: 0; padding: 0;}
+    header { background: linear-gradient(to right, #ff0040, #ff9900); padding: 20px; text-align: center; font-size: 2em; color: #fff; text-shadow: 0 0 10px #ff0040;}
+    .controls {
+      display: flex;
+      flex-direction: row;
+      justify-content: center;
+      align-items: center;
+      gap: 14px;
+      margin: 15px 0 15px 0;
+      flex-wrap: wrap;
+    }
+    .controls select, .controls input[type=number], .controls button {
+      background-color: #111;
+      color: #00ffe0;
+      border: 2px solid #00ffe0;
+      padding: 6px 12px;
+      font-size: 1em;
+      border-radius: 7px;
+      min-width: 90px;
+    }
+    .controls label { font-size: 1em; }
+    #themeToggle { cursor:pointer; padding: 6px 12px; border-radius: 7px; background: #222; color:#fff; border:1px solid #00ffe0; }
+    #lossShield { margin-top: 10px; text-align: center;}
+    #signalLog { width: 98vw; max-width: 1200px; margin: 10px auto; padding: 8px; background: #111; border: 2px solid #00ffe0; border-radius: 10px; color: #00ffe0;}
+    #signalLog h3 { margin: 0 0 6px; text-align: center;}
+    #signalList { list-style: none; padding-left: 10px; max-height:120px; overflow-y:auto;}
+    #signalList li { margin-bottom: 5px; border-bottom: 1px solid #00ffe0; font-size:0.97em; }
+    .alert { font-weight: bold; color: #ff0; background: #222; padding: 2px 10px; border-radius: 4px;}
+    #chart-container {
+      width: 98vw;
+      max-width: 1200px;
+      height: 220px;
+      margin: 20px auto 0 auto;
+      background: #111;
+      border: 2px solid #00ffe0;
+      padding: 8px;
+      border-radius: 10px;
+    }
+    #macd-scroll-wrapper {
+      width: 98vw;
+      max-width: 1600px;
+      overflow-x: auto;
+      margin: 0 auto 22px auto;
+      background: #111;
+      border: 2px solid #00ffe0;
+      padding: 6px;
+      border-radius: 10px;
+      height: 520px;
+    }
+    #macdChart {
+      width: 2600px !important;
+      height: 500px !important;
+      min-width: 1200px;
+      min-height: 280px;
+      display: block;
+    }
+    @media (max-width: 1700px) {
+      #macd-scroll-wrapper { max-width: 99vw; }
+      #macdChart { min-width: 900px; width: 1400px !important; }
+    }
+    @media (max-width: 800px) {
+      #chart-container, #macd-scroll-wrapper, #signalLog { width: 99vw; max-width: 99vw; }
+      .controls { flex-direction: column; align-items:center; }
+      #macdChart { width: 900px !important; min-width: 700px; height: 240px !important; min-height: 100px; }
+    }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.1.0"></script>
 </head>
 <body>
-  <header>ELIAKIM-N SPARK-X • Professional TradingView Dashboard</header>
-  <!-- TradingView Widget BEGIN -->
-  <div class="tradingview-widget-container" style="height:520px; width:99vw;">
-    <div id="tradingview_chart"></div>
+  <header>ELIAKIM-N SPARK-X • MACD Dashboard (Accurate & Early Signals)</header>
+  <div class="controls">
+    <label>
+      Volatility:
+      <select id="volatilitySelector">
+        <option value="R_10">Volatility 10 Index</option>
+        <option value="R_25">Volatility 25 Index</option>
+        <option value="R_50">Volatility 50 Index</option>
+        <option value="R_75" selected>Volatility 75 Index</option>
+        <option value="R_100">Volatility 100 Index</option>
+        <option value="R_10_1HZ">Volatility 10 (1s)</option>
+        <option value="R_25_1HZ">Volatility 25 (1s)</option>
+        <option value="R_50_1HZ">Volatility 50 (1s)</option>
+        <option value="R_75_1HZ">Volatility 75 (1s)</option>
+        <option value="R_100_1HZ">Volatility 100 (1s)</option>
+      </select>
+    </label>
+    <label>Fast EMA: <input type="number" id="fastEma" value="12" min="2" max="50" size="3"></label>
+    <label>Slow EMA: <input type="number" id="slowEma" value="26" min="4" max="100" size="3"></label>
+    <label>Signal EMA: <input type="number" id="signalEma" value="9" min="2" max="50" size="3"></label>
+    <label>
+      Growth Rate:
+      <select id="growthRateSelector">
+        <option value="1">1%</option>
+        <option value="2">2%</option>
+        <option value="3">3%</option>
+        <option value="4">4%</option>
+        <option value="5">5%</option>
+      </select>
+    </label>
+    <button onclick="applySettings()">⚙️ Apply</button>
+    <button id="themeToggle" onclick="toggleTheme()">🌒 Theme</button>
+    <button onclick="exportLog()">Export Log</button>
   </div>
-  <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-  <script type="text/javascript">
-    new TradingView.widget({
-      "width": "100%",
-      "height": 500,
-      "symbol": "DERIV:R_75", // Change this to your preferred symbol (e.g. DERIV:R_100)
-      "interval": "1",
-      "timezone": "Etc/UTC",
-      "theme": "dark",
-      "style": "1",
-      "locale": "en",
-      "toolbar_bg": "#111",
-      "enable_publishing": false,
-      "hide_top_toolbar": false,
-      "hide_legend": false,
-      "save_image": false,
-      "container_id": "tradingview_chart"
+
+  <div id="chart-container">
+    <canvas id="candlestickChart"></canvas>
+  </div>
+  <div id="macd-scroll-wrapper">
+    <canvas id="macdChart"></canvas>
+  </div>
+  <div id="lossShield" style="margin-bottom:8px;">
+    <label>
+      <input type="checkbox" id="shieldToggle" />
+      🛡️ Loss Shield (Disable trades near barrier)
+    </label>
+  </div>
+  <div id="signalLog">
+    <h3>📋 Signal Log</h3>
+    <ul id="signalList"></ul>
+  </div>
+  <!-- Alert sounds -->
+  <audio id="entrySound" src="https://assets.mixkit.co/sfx/preview/mixkit-positive-interface-beep-221.mp3"></audio>
+  <audio id="exitSound" src="https://assets.mixkit.co/sfx/preview/mixkit-warning-notification-93.mp3"></audio>
+  <audio id="nearLossSound" src="https://assets.mixkit.co/sfx/preview/mixkit-interface-hint-notification-911.mp3"></audio>
+  <audio id="breachSound" src="https://assets.mixkit.co/sfx/preview/mixkit-tech-breakdown-2478.mp3"></audio>
+  <audio id="earlyAlertSound" src="https://assets.mixkit.co/sfx/preview/mixkit-tick-tock-clock-timer-1045.mp3"></audio>
+
+  <script>
+    // --- Configuration
+    const app_id = 1089;
+    const api_token = "lKcYGLpmaAMgUkH";
+    let ws = null;
+    let tickPrices = [];
+    let tickTimes = [];
+    let barrier = null;
+    let growthRate = 1;
+    let selectedSymbol = "R_75";
+    let wsRetryCount = 0;
+    const wsMaxRetries = 5;
+    const wsRetryDelay = 2000;
+    let lastEarlyAlertIdx = -1000;
+    let theme = "dark";
+    const maxTicks = 5000;
+
+    // --- Chart.js candlestick (price)
+    const candlestickCtx = document.getElementById('candlestickChart').getContext('2d');
+    let candlestickChart = new Chart(candlestickCtx, {
+      type: 'line',
+      data: { labels:[], datasets:[{label:'Price', data:[], borderColor:'#fff', backgroundColor:'#00ffe0', borderWidth:2, pointRadius:0 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend:{labels:{color:'#fff'}} },
+        scales: {
+          x: { display: false, grid: { display: false } },
+          y: { ticks:{color:'#fff'}, grid:{ display: false } }
+        }
+      }
     });
-  </script>
-  <!-- TradingView Widget END -->
-  <p style="color:#00ffe0;text-align:center;">
-    Use the <b>Indicators</b> button to add MACD, RSI, ADX, Supertrend, or any other indicator.<br>
-    Set up alerts using the alarm (clock) icon for early/buy/sell signals!
-  </p>
-</body>
-</html>
+
+    // --- Chart.js MACD (broad and scrollable)
+    const macdCtx = document.getElementById('macdChart').getContext('2d');
+    let macdChart = new Chart(macdCtx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: 'MACD',
+            data: [],
+            borderColor: '#00ffe0',
+            borderWidth: 2,
+            tension: 0.25,
+            pointRadius: 0,
+            pointHoverRadius: 0
+          },
+          {
+            label: 'Signal',
+            data: [],
+            borderColor: '#ff0040',
+            borderWidth: 2,
+            tension: 0.25,
+            pointRadius: 0,
+            pointHoverRadius: 0
+          },
+          {
+            label: 'Histogram',
+            data: [],
+            borderColor: '#ff9900',
+            borderWidth: 2,
+            tension: 0.25,
+            pointRadius: 0,
+            pointHoverRadius: 0
+          }
+        ]
+      },
+      options: {
+        responsive: false,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#fff' } }, annotation: {} },
+        scales: {
+          x: { display: true, grid: { display: false }, ticks: { color: '#fff', maxRotation: 0, autoSkip: true } },
+          y: { display: true, grid: { display: false }, ticks: { color: '#fff' } }
+        },
+        animation: false
+      }
+    });
+
+    // --- Theme toggle
+    function toggleTheme() {
+      if (theme === "dark") {
+        document.body.style.background = "#f3f3f3";
+        document.body.style.color = "#222";
+        document.querySelectorAll("header, #chart-container, #macd-scroll-wrapper, #signalLog").forEach(e=>e.style.background="#fff");
+        document.querySelectorAll("header").forEach(e=>e.style.color="#222");
+        theme = "light";
+      } else {
+        document.body.style.background = "#0a0a0a";
+        document.body.style.color = "#00ffe0";
+        document.querySelectorAll("header, #chart-container, #macd-scroll-wrapper, #signalLog").forEach(e=>e.style.background="#111");
+        document.querySelectorAll("header").forEach(e=>e.style.color="#fff");
+        theme = "dark";
+      }
+    }
+
+    // --- Settings apply
+    function applySettings() {
+      selectedSymbol = document.getElementById('volatilitySelector').value;
+      growthRate = parseFloat(document.getElementById('growthRateSelector').value);
+      tickPrices = [];
+      tickTimes = [];
+      barrier = null;
+      wsRetryCount = 0;
+      candlestickChart.data.labels = [];
+      candlestickChart.data.datasets[0].data = [];
+      candlestickChart.update();
+      macdChart.data.labels = [];
+      macdChart.data.datasets.forEach(ds=>ds.data=[]);
+      macdChart.options.plugins.annotation = {};
+      macdChart.update();
+      connectToDeriv();
+    }
+
+    // --- WebSocket w/ health check & reconnect
+    function connectToDeriv() {
+      if (ws) { ws.onclose=null; ws.onerror=null; ws.close(); ws=null; }
+      ws = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${app_id}`);
+      ws.onopen = () => { wsRetryCount = 0; ws.send(JSON.stringify({ authorize: api_token })); };
+      ws.onmessage = msg => {
+        try {
+          const data = JSON.parse(msg.data);
+          if (data.msg_type === "authorize") ws.send(JSON.stringify({ ticks: selectedSymbol, subscribe: 1 }));
+          if (data.msg_type === "tick") {
+            const price = parseFloat(data.tick.quote);
+            const time = data.tick.epoch * 1000;
+            if (!isFinite(price)) return;
+            tickPrices.push(price);
+            tickTimes.push(time);
+            if (tickPrices.length > maxTicks) { tickPrices.shift(); tickTimes.shift(); }
+            if (!barrier) barrier = price * (1 + growthRate / 100);
+            updateCharts();
+          }
+        } catch (err) { console.error("Error handling message:", err); }
+      };
+      ws.onerror = err => { console.error("WebSocket error:", err); ws.close(); };
+      ws.onclose = () => {
+        if (wsRetryCount < wsMaxRetries) { wsRetryCount++; setTimeout(connectToDeriv, wsRetryDelay * wsRetryCount);}
+        else logSignal("❌ WebSocket repeatedly failed. Please refresh page or check network.");
+      };
+    }
+
+    // --- EMA calculation (correct exponential formula)
+    function calculateEMA(period, prices) {
+      if (prices.length < period) return [];
+      let emaArray = [];
+      let k = 2 / (period + 1);
+      let sum = 0;
+      for (let i = 0; i < period; i++) sum += prices[i];
+      let ema = sum / period;
+      emaArray[period - 1] = ema;
+      for (let i = period; i < prices.length; i++) {
+        ema = prices[i] * k + ema * (1 - k);
+        emaArray[i] = ema;
+      }
+      return emaArray;
+    }
+
+    // --- RSI calculation
+    function calculateRSI(period, prices) {
+      let rsiArray = [];
+      if (prices.length < period + 1) return [];
+      for (let i = period; i < prices.length; i++) {
+        let gains = 0, losses = 0;
+        for (let j = i - period + 1; j <= i; j++) {
+          let diff = prices[j] - prices[j-1];
+          if (diff >= 0) gains += diff;
+          else losses -= diff;
+        }
+        let avgGain = gains / period;
+        let avgLoss = losses / period;
+        let rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
+        let rsi = 100 - (100 / (1 + rs));
+        rsiArray[i] = rsi;
+      }
+      return rsiArray;
+    }
+
+    // --- ADX calculation (simplified for live streaming)
+    function calculateADX(period, prices) {
+      // We'll use price as close, and estimate high/low with small random variation for demo
+      if (prices.length < period + 1) return [];
+      let plusDM = [], minusDM = [], tr = [];
+      for (let i = 1; i < prices.length; i++) {
+        let high = prices[i] * 1.001;
+        let low = prices[i] * 0.999;
+        let prevHigh = prices[i-1] * 1.001;
+        let prevLow = prices[i-1] * 0.999;
+        let upMove = high - prevHigh;
+        let downMove = prevLow - low;
+        plusDM[i] = (upMove > downMove && upMove > 0) ? upMove : 0;
+        minusDM[i] = (downMove > upMove && downMove > 0) ? downMove : 0;
+        tr[i] = Math.max(high - low, Math.abs(high - prices[i-1]), Math.abs(low - prices[i-1]));
+      }
+      let plusDI = [], minusDI = [], dx = [], adx = [];
+      let sumTR = 0, sumPlusDM = 0, sumMinusDM = 0;
+      for (let i = 1; i <= period; i++) {
+        sumTR += tr[i] || 0;
+        sumPlusDM += plusDM[i] || 0;
+        sumMinusDM += minusDM[i] || 0;
+      }
+      plusDI[period] = 100 * (sumPlusDM / sumTR);
+      minusDI[period] = 100 * (sumMinusDM / sumTR);
+      dx[period] = 100 * Math.abs(plusDI[period] - minusDI[period]) / (plusDI[period] + minusDI[period]);
+      adx[period] = dx[period];
+      for (let i = period+1; i < prices.length; i++) {
+        sumTR = sumTR - (tr[i-period]||0) + (tr[i]||0);
+        sumPlusDM = sumPlusDM - (plusDM[i-period]||0) + (plusDM[i]||0);
+        sumMinusDM = sumMinusDM - (minusDM[i-period]||0) + (minusDM[i]||0);
+        plusDI[i] = 100 * (sumPlusDM / sumTR);
+        minusDI[i] = 100 * (sumMinusDM / sumTR);
+        dx[i] = 100 * Math.abs(plusDI[i] - minusDI[i]) / ((plusDI[i] + minusDI[i]) || 1);
+        adx[i] = ((adx[i-1] || dx[i]) * (period - 1) + dx[i]) / period;
+      }
+      return adx;
+    }
+
+    // --- Chart update (candlestick + MACD + RSI + ADX)
+    function updateCharts() {
+      candlestickChart.data.labels = tickTimes.slice(-400).map(t=>new Date(t));
+      candlestickChart.data.datasets[0].data = tickPrices.slice(-400);
+      candlestickChart.update();
+
+      // MACD
+      const fast = parseInt(document.getElementById('fastEma').value);
+      const slow = parseInt(document.getElementById('slowEma').value);
+      const signalN = parseInt(document.getElementById('signalEma').value);
+      if (tickPrices.length < slow) return;
+
+      const emaFast = calculateEMA(fast, tickPrices);
+      const emaSlow = calculateEMA(slow, tickPrices);
+
+      let macd = [];
+      for (let i = 0; i < tickPrices.length; i++) {
+        if (emaFast[i] !== undefined && emaSlow[i] !== undefined)
+          macd[i] = emaFast[i] - emaSlow[i];
+        else
+          macd[i] = undefined;
+      }
+      const validMacd = macd.filter(v => typeof v === 'number' && !isNaN(v));
+      const signal = calculateEMA(signalN, validMacd);
+      let signalFull = Array(macd.length).fill(undefined);
+      for (let i = 0, j = 0; i < macd.length; i++) {
+        if (typeof macd[i] === 'number') {
+          if (signal[j] !== undefined) signalFull[i] = signal[j];
+          j++;
+        }
+      }
+      let histogram = macd.map((v, i) =>
+        (typeof v === 'number' && typeof signalFull[i] === 'number')
+          ? v - signalFull[i]
+          : undefined
+      );
+
+      // RSI and ADX
+      const rsiPeriod = 14, adxPeriod = 14;
+      const rsi = calculateRSI(rsiPeriod, tickPrices);
+      const adx = calculateADX(adxPeriod, tickPrices);
+
+      // Chart data (show full history)
+      macdChart.data.labels = tickTimes.map(t=>new Date(t));
+      macdChart.data.datasets[0].data = macd;
+      macdChart.data.datasets[1].data = signalFull;
+      macdChart.data.datasets[2].data = histogram;
+      macdChart.options.plugins.annotation = {};
+      macdChart.update();
+
+      analyzeSignals(macd, signalFull, histogram, rsi, adx, tickPrices[tickPrices.length-1]);
+      checkEarlyBarrierAlert();
+      setTimeout(() => {
+        const wrapper = document.getElementById('macd-scroll-wrapper');
+        wrapper.scrollLeft = wrapper.scrollWidth;
+      }, 0);
+    }
+
+    // --- Signal analysis, log, and alerts (robust cross detection, filtered)
+    function logSignal(message, type="info") {
+      const logItem = document.createElement('li');
+      logItem.textContent = message;
+      if (type === "alert") logItem.className = "alert";
+      const list = document.getElementById('signalList');
+      if (list.childNodes.length > 100) list.removeChild(list.lastChild);
+      list.prepend(logItem);
+    }
+
+    function analyzeSignals(macd, signal, histogram, rsi, adx, currentPrice) {
+      let len = macd.length;
+      if (len < 2) return;
+      // Find last two valid indexes for both macd and signal
+      let idx1 = -1, idx0 = -1;
+      for (let i = len-1; i >= 1; i--) {
+        if (typeof macd[i] === 'number' && typeof signal[i] === 'number' &&
+            typeof macd[i-1] === 'number' && typeof signal[i-1] === 'number') {
+          idx1 = i;
+          idx0 = i-1;
+          break;
+        }
+      }
+      if (idx1 === -1 || idx0 === -1) return;
+      const prevMACD = macd[idx0], currMACD = macd[idx1];
+      const prevSignal = signal[idx0], currSignal = signal[idx1];
+      const currHist = histogram[idx1];
+      const currRSI = rsi[idx1] || 50;
+      const currADX = adx[idx1] || 20;
+
+      let message = "", annotation = null;
+
+      // --- Filtered Buy Signal ---
+      if (
+        prevMACD < prevSignal && currMACD >= currSignal &&         // MACD cross up
+        currRSI > 40 && currRSI < 70 &&                           // RSI not overbought
+        currADX > 20                                              // Trend strength
+      ) {
+        message = `🟢 BUY (MACD↑, RSI=${currRSI.toFixed(1)}, ADX=${currADX.toFixed(1)})`;
+        annotation = { label: 'BUY', color: '#00ff00' };
+      }
+      // --- Filtered Sell Signal ---
+      else if (
+        prevMACD > prevSignal && currMACD <= currSignal &&        // MACD cross down
+        currRSI < 60 && currRSI > 30 &&                           // RSI not oversold
+        currADX > 20                                              // Trend strength
+      ) {
+        message = `🔴 SELL (MACD↓, RSI=${currRSI.toFixed(1)}, ADX=${currADX.toFixed(1)})`;
+        annotation = { label: 'SELL', color: '#ff0040' };
+      }
+
+      if (annotation) {
+        // Barrier warnings
+        if (barrier) {
+          const distance = barrier - currentPrice;
+          if (distance <= 0) { message += " 🟥 BREACHED barrier!"; annotation = { label: 'BREACHED', color: '#ff0000' }; }
+          else if (distance < currentPrice * 0.005) { message += " 🟨 Near barrier!"; annotation = { label: 'NEAR LOSS', color: '#ffcc00' }; }
+          else { message += " 🟩 Safe distance from barrier"; }
+        }
+        const soundMap = { 'BUY':'entrySound', 'SELL':'exitSound', 'NEAR LOSS':'nearLossSound', 'BREACHED':'breachSound' };
+        const soundId = soundMap[annotation.label];
+        if (soundId) document.getElementById(soundId).play();
+      }
+      if (message) logSignal(message);
+
+      // Add annotation to MACD chart
+      if (annotation) {
+        macdChart.options.plugins.annotation = {
+          annotations: {
+            signal: {
+              type: 'label',
+              xValue: macdChart.data.labels[idx1],
+              yValue: currMACD,
+              backgroundColor: annotation.color,
+              content: annotation.label,
+              font: { size: 14, weight: 'bold' },
+              borderRadius: 4,
+              padding: 6
+            }
+          }
+        };
+        macdChart.update();
+      }
+    }
+
+    // --- Early warning: 4 ticks ahead (4 seconds for 1s indices)
+    function checkEarlyBarrierAlert() {
+      if (!barrier || tickPrices.length < 5) return;
+      const dt = 1;
+      const n = 4;
+      const dPrice = tickPrices[tickPrices.length-
