@@ -315,7 +315,6 @@
 
     // --- ADX calculation (simplified for live streaming)
     function calculateADX(period, prices) {
-      // We'll use price as close, and estimate high/low with small random variation for demo
       if (prices.length < period + 1) return [];
       let plusDM = [], minusDM = [], tr = [];
       for (let i = 1; i < prices.length; i++) {
@@ -500,4 +499,6 @@
       if (!barrier || tickPrices.length < 5) return;
       const dt = 1;
       const n = 4;
-      const dPrice = tickPrices[tickPrices.length-
+      const dPrice = tickPrices[tickPrices.length-1] - tickPrices[tickPrices.length-5];
+      const v = dPrice / (4*dt);
+      if (Math.abs(v) <
