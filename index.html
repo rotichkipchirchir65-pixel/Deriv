@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>SPARK-X MACD Dashboard (Advanced)</title>
+  <title>SPARK-X MACD Dashboard (Improved Signals)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     body { background-color: #0a0a0a; color: #00ffe0; font-family: 'Orbitron', sans-serif; margin: 0; padding: 0;}
@@ -76,7 +76,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.1.0"></script>
 </head>
 <body>
-  <header>ELIAKIM-N SPARK-X • MACD Dashboard (Advanced)</header>
+  <header>ELIAKIM-N SPARK-X • MACD Dashboard (Improved Signals)</header>
   <div class="controls">
     <label>
       Volatility:
@@ -277,17 +277,22 @@
       };
     }
 
-    // --- EMA calculation
+    // --- EMA calculation (correct exponential formula)
     function calculateEMA(period, prices) {
-      if (prices.length < 1) return [];
-      const k = 2 / (period + 1);
-      let ema = prices[0];
-      const result = [ema];
-      for (let i = 1; i < prices.length; i++) {
+      if (prices.length < period) return [];
+      let emaArray = [];
+      let k = 2 / (period + 1);
+      // Start with simple SMA for first EMA value
+      let sum = 0;
+      for (let i = 0; i < period; i++) sum += prices[i];
+      let ema = sum / period;
+      emaArray[period - 1] = ema;
+      // Continue with EMA
+      for (let i = period; i < prices.length; i++) {
         ema = prices[i] * k + ema * (1 - k);
-        result.push(ema);
+        emaArray[i] = ema;
       }
-      return result;
+      return emaArray;
     }
 
     // --- Chart update (candlestick + MACD)
@@ -296,27 +301,53 @@
       candlestickChart.data.datasets[0].data = tickPrices.slice(-400);
       candlestickChart.update();
 
-      // MACD chart -- keep all history for scrollback
+      // MACD calculation (standard, with correct alignment)
       const fast = parseInt(document.getElementById('fastEma').value);
       const slow = parseInt(document.getElementById('slowEma').value);
       const signalN = parseInt(document.getElementById('signalEma').value);
       if (tickPrices.length < slow) return;
+
       const emaFast = calculateEMA(fast, tickPrices);
       const emaSlow = calculateEMA(slow, tickPrices);
-      const macd = [];
-      for (let i = 0; i < Math.min(emaFast.length, emaSlow.length); i++)
-        macd.push(emaFast[i] - emaSlow[i]);
-      const signal = calculateEMA(signalN, macd);
-      const histogram = macd.map((v, i) => (signal[i] !== undefined ? v - signal[i] : 0));
-      // Keep all history for scrollback
-      macdChart.data.labels = tickTimes.slice(0, macd.length).map(t=>new Date(t));
+
+      // MACD is only valid where both EMAs exist
+      let macd = [];
+      for (let i = 0; i < tickPrices.length; i++) {
+        if (emaFast[i] !== undefined && emaSlow[i] !== undefined)
+          macd[i] = emaFast[i] - emaSlow[i];
+        else
+          macd[i] = undefined;
+      }
+
+      // Signal line (ignore undefined MACD values)
+      const validMacd = macd.filter(v => typeof v === 'number' && !isNaN(v));
+      const signal = calculateEMA(signalN, validMacd);
+
+      // Align signal array to macd index
+      let signalFull = Array(macd.length).fill(undefined);
+      for (let i = 0, j = 0; i < macd.length; i++) {
+        if (typeof macd[i] === 'number') {
+          if (signal[j] !== undefined) signalFull[i] = signal[j];
+          j++;
+        }
+      }
+
+      // Histogram (difference where both macd and signal exist)
+      let histogram = macd.map((v, i) =>
+        (typeof v === 'number' && typeof signalFull[i] === 'number')
+          ? v - signalFull[i]
+          : undefined
+      );
+
+      // Chart data (show full history)
+      macdChart.data.labels = tickTimes.map(t=>new Date(t));
       macdChart.data.datasets[0].data = macd;
-      macdChart.data.datasets[1].data = signal;
+      macdChart.data.datasets[1].data = signalFull;
       macdChart.data.datasets[2].data = histogram;
       macdChart.options.plugins.annotation = {};
       macdChart.update();
 
-      analyzeSignals(macd, signal, histogram, tickPrices[tickPrices.length-1]);
+      analyzeSignals(macd, signalFull, histogram, tickPrices[tickPrices.length-1]);
       checkEarlyBarrierAlert();
       // Auto-scroll to latest
       setTimeout(() => {
@@ -325,7 +356,7 @@
       }, 0);
     }
 
-    // --- Signal analysis, log, and alerts
+    // --- Signal analysis, log, and alerts (robust cross detection)
     function logSignal(message, type="info") {
       const logItem = document.createElement('li');
       logItem.textContent = message;
@@ -336,17 +367,29 @@
     }
 
     function analyzeSignals(macd, signal, histogram, currentPrice) {
-      const len = macd.length;
+      // Find last valid values
+      let len = macd.length;
       if (len < 2) return;
-      const prevMACD = macd[len-2], currMACD = macd[len-1];
-      const prevSignal = signal[len-2], currSignal = signal[len-1];
-      const currHist = histogram[len-1];
+      // Find last two valid indexes for both macd and signal
+      let idx1 = -1, idx0 = -1;
+      for (let i = len-1; i >= 1; i--) {
+        if (typeof macd[i] === 'number' && typeof signal[i] === 'number' &&
+            typeof macd[i-1] === 'number' && typeof signal[i-1] === 'number') {
+          idx1 = i;
+          idx0 = i-1;
+          break;
+        }
+      }
+      if (idx1 === -1 || idx0 === -1) return;
+      const prevMACD = macd[idx0], currMACD = macd[idx1];
+      const prevSignal = signal[idx0], currSignal = signal[idx1];
+      const currHist = histogram[idx1];
 
       let message = "", annotation = null;
-      if (prevMACD < prevSignal && currMACD > currSignal) {
+      if (prevMACD < prevSignal && currMACD >= currSignal) {
         message = "✅ ENTRY: MACD crossed above Signal (bullish momentum)";
         annotation = { label: 'ENTRY', color: '#00ff00' };
-      } else if (prevMACD > prevSignal && currMACD < currSignal) {
+      } else if (prevMACD > prevSignal && currMACD <= currSignal) {
         message = "⚠️ EXIT: MACD crossed below Signal (bearish momentum)";
         annotation = { label: 'EXIT', color: '#ff0040' };
       }
@@ -360,19 +403,18 @@
         else if (distance < currentPrice * 0.005) { message += " 🟨 Near barrier!"; annotation = { label: 'NEAR LOSS', color: '#ffcc00' }; }
         else { message += " 🟩 Safe distance from barrier"; }
       }
-      // Play sound
       if (annotation) {
         const soundMap = { 'ENTRY':'entrySound', 'EXIT':'exitSound', 'NEAR LOSS':'nearLossSound', 'BREACHED':'breachSound' };
         const soundId = soundMap[annotation.label];
         if (soundId) document.getElementById(soundId).play();
       }
-      logSignal(message);
+      if(message) logSignal(message);
       if (annotation) {
         macdChart.options.plugins.annotation = {
           annotations: {
             signal: {
               type: 'label',
-              xValue: macdChart.data.labels[macdChart.data.labels.length - 1],
+              xValue: macdChart.data.labels[idx1],
               yValue: currMACD,
               backgroundColor: annotation.color,
               content: annotation.label,
@@ -424,4 +466,4 @@
     };
   </script>
 </body>
-  </html>
+</html>
