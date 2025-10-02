@@ -124,9 +124,33 @@
       data: {
         labels: [],
         datasets: [
-          { label: 'MACD', data: [], borderColor: '#00ffe0', borderWidth: 2, tension: 0.25 },
-          { label: 'Signal', data: [], borderColor: '#ff0040', borderWidth: 2, tension: 0.25 },
-          { label: 'Histogram', data: [], borderColor: '#ff9900', borderWidth: 2, tension: 0.25 }
+          {
+            label: 'MACD',
+            data: [],
+            borderColor: '#00ffe0',
+            borderWidth: 2,
+            tension: 0.25,
+            pointRadius: 0,
+            pointHoverRadius: 0
+          },
+          {
+            label: 'Signal',
+            data: [],
+            borderColor: '#ff0040',
+            borderWidth: 2,
+            tension: 0.25,
+            pointRadius: 0,
+            pointHoverRadius: 0
+          },
+          {
+            label: 'Histogram',
+            data: [],
+            borderColor: '#ff9900',
+            borderWidth: 2,
+            tension: 0.25,
+            pointRadius: 0,
+            pointHoverRadius: 0
+          }
         ]
       },
       options: {
@@ -134,7 +158,7 @@
         plugins: { legend: { labels: { color: '#fff' } }, annotation: {} },
         scales: {
           x: { display: false, grid: { display: false } },
-          y: { ticks: { color: '#fff' }, grid: { display: false } }
+          y: { display: true, grid: { display: false }, ticks: { color: '#fff' } }
         }
       }
     });
